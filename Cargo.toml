@@ -1,0 +1,12 @@
+[package]
+name = "dl-media"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+dialoguer = "0.11"
+dirs = "5.0"
+chrono = "0.4"          # 用於產生時間戳記
+serde_json = "1.0"      # 用於解析 yt-dlp 探測出來的 json
+regex = "1.10"          # 用於淨化字幕標籤

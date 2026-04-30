@@ -1,0 +1,48 @@
+name: Build and Release Cross-Platform Binaries
+
+# 觸發條件：當你推送到 GitHub 的標籤開頭為 'v' 時 (例如 v1.0.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    
+    # 矩陣策略：定義三個不同的作業系統與編譯目標
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin_name: dl-media
+            asset_name: dl-media-mac-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_name: dl-media.exe
+            asset_name: dl-media-windows-x64.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_name: dl-media
+            asset_name: dl-media-linux-x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # 將編譯好的成品上傳，讓你可以在 GitHub 網頁上下載
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.bin_name }}
