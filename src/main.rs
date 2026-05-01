@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 #[derive(Parser, Debug)]
-#[command(name = "dl-media", about = "全能影音分析與下載器 (Rust v5.3.2 完全體)")]
+#[command(name = "dl-media", about = "全能影音分析與下載器 (v0.0.1)")]
 struct Args {
     #[arg(short, long)]
     url: Option<String>,
@@ -57,7 +57,7 @@ fn main() {
     let input_url = match args.url {
         Some(url) => url,
         None => {
-            println!("📥 全能下載器 v5.3.2 (Rust 完整版)");
+            println!("dl-media v0.0.1");
             Input::with_theme(&ColorfulTheme::default()).with_prompt("🔗 請貼上影片或播放清單網址").interact_text().unwrap()
         }
     };
