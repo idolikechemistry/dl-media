@@ -30,9 +30,7 @@
 請打開終端機並貼上以下指令。此指令會自動下載執行檔、賦予權限，並將其移動至系統路徑以便全域調用（此範例為 Mac Apple Silicon 版本）：
 
 ```bash
-curl -L [https://github.com/idolikechemistry/dl-media/releases/download/v0.2.1/dl-media-mac-arm64](https://github.com/idolikechemistry/dl-media/releases/download/v0.2.1/dl-media-mac-arm64) -o dl-media && \
-chmod +x dl-media && \
-sudo mv dl-media /usr/local/bin/
+curl -L "https://github.com/idolikechemistry/dl-media/releases/latest/download/dl-media-mac-arm64" -o dl-media && chmod +x dl-media && sudo mv dl-media /usr/local/bin/
 ```
 *(注意：Linux 使用者請將網址中的 `dl-media-mac-arm64` 更改為 `dl-media-linux-x64` 即可)*
 
