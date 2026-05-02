@@ -2,7 +2,8 @@ use clap::Parser;
 use std::process;
 
 #[derive(Parser, Debug)]
-#[command(name = "dl-media", about = "全能影音分析與下載器 (v0.3.0)")]
+#[command(name = "dl-media", version, about = "全能影音分析與下載器")]
+// clap 會自動幫你加上 -V, --version 參數，並讀取 Cargo.toml 的版本
 pub struct Args {
     #[arg(short, long, help = "貼上要下載的影片或播放清單網址")]
     pub url: Option<String>,

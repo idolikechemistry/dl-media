@@ -50,10 +50,37 @@ jobs:
             cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
           fi
 
-      # 建立正式 Release 並將檔案掛載上去
+      # 建立 Release 並將檔案掛載上去，自動判斷是否為預發布版本
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.asset_name }}
+          # 如果 git tag 包含 '-' (如 v0.3.0-beta.1)，則設定為 Pre-release
+          prerelease: ${{ contains(github.ref, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# =====================================================================
+# 🚀 終端機發布指令小抄 (直接複製到終端機，修改版本號後執行)
+# =====================================================================
+#
+# 【情境 A：發布預發布版本 (Pre-release，例如 Beta 測試)】
+# 說明：會觸發編譯，但 GitHub 頁面上會標示為 Pre-release，不會取代正式 Latest 版。
+# 指令：
+# git tag v<version_number-beta> (例如 git tag v0.3.0-beta)
+# git push origin v<version_number-beta>
+#
+# ---------------------------------------------------------------------
+# 【情境 B：發布正式版本 (Latest Release)】
+# 說明：會觸發編譯，並在 GitHub 頁面上標示為最新的正式穩定版本。
+# 指令：
+# git tag v<version_number> (例如 git tag v0.3.0)
+# git push origin v<version_number>
+#
+# ---------------------------------------------------------------------
+# 【情境 C：後悔藥 (刪除打錯的標籤)】
+# 說明：如果不小心打錯標籤，需要把本地和 GitHub 遠端的標籤都刪除。
+# 指令：
+# git tag -d v<version_number-beta> (例如 git tag -d v0.3.0-beta)
+# git push origin --delete v<version_number-beta>
+# =====================================================================
