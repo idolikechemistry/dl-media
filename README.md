@@ -48,7 +48,8 @@ sudo mv dl-media /usr/local/bin/
 dl-media
 ```
 
->hint: 第一次建議使用 `dl-media -h` 查看說明
+> [!hint] 
+> 第一次建議使用 `dl-media -h` 查看說明文件
 
 ### Windows 使用者
 
