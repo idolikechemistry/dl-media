@@ -4,7 +4,7 @@
 ![Version](https://img.shields.io/badge/Version-0.2.1-blue.svg)
 ![CI](https://img.shields.io/github/actions/workflow/status/idolikechemistry/dl-media/release.yml)
 
-**dl-media** 是一個專為終端機使用者設計的全能影音下載工具。它簡化了 `yt-dlp` 的複雜參數，提供直覺的選單，並自動處理影片後續的彈幕合併與字幕淨化工作。
+**dl-media** 是一個為終端機使用者設計的影音下載工具。它簡化了 `yt-dlp` 的複雜參數，提供直覺的選單，並自動處理影片後續的彈幕合併與字幕淨化工作。
 
 ## 🌟 核心特色
 - **互動式與自動化雙模**：提供直覺選單，亦支援完全自動化的指令參數執行。
