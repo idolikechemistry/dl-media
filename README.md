@@ -39,7 +39,22 @@ sudo mv dl-media /usr/local/bin/
 請前往 [Releases](https://github.com/idolikechemistry/dl-media/releases) 頁面下載最新的 `dl-media-windows-x64.exe` 並手動放置於您的資料夾中。
 
 ---
+## 使用方式
 
+### MacOS / Linux 使用者
+
+開啟終端機，輸入
+```bash
+dl-media
+```
+
+>hint: 第一次建議使用 `dl-media -h` 查看說明
+
+### Windows 使用者
+
+直接打開執行檔就好
+
+---
 ## 📖 指令參數說明 (Options)
 
 | 參數 | 說明 | 範例 |
