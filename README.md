@@ -17,32 +17,26 @@
 ---
 
 ## 🛠️ 執行前準備
-無論您使用哪種安裝方式，請確保您的電腦已安裝以下核心工具：
-
-1. **yt-dlp**: 影音下載核心。
-2. **FFmpeg**: 影音轉碼與封裝工具。
-3. **ffprobe**: 影音資訊解析工具（通常隨 FFmpeg 一併安裝）。
-
-**macOS 安裝方式：**
-```bash
-brew install yt-dlp ffmpeg
-```
+無論您使用哪種安裝方式，請確保您的系統已安裝以下核心工具：
+- **yt-dlp**: 影音下載核心。
+- **FFmpeg**: 影音轉碼與封裝工具。
+- **ffprobe**: 影音資訊解析工具。
 
 ---
 
-## 🚀 快速開始
+## 🚀 安裝方式
 
-1. **執行程式**：
-   直接執行即可進入互動選單：
-   ```bash
-   ./dl-media
-   ```
+### macOS / Linux 使用者
+請打開終端機並貼上以下指令。此指令會自動下載執行檔、賦予權限，並將其移動至系統路徑以便全域調用（此範例為 Mac Apple Silicon 版本）：
+```bash
+curl -L [https://github.com/idolikechemistry/dl-media/releases/download/v0.2.1/dl-media-mac-arm64](https://github.com/idolikechemistry/dl-media/releases/download/v0.2.1/dl-media-mac-arm64) -o dl-media && \
+chmod +x dl-media && \
+sudo mv dl-media /usr/local/bin/
+```
+*(注意：Linux 使用者請將網址中的檔名更改為 `dl-media-linux-x64` 即可)*
 
-2. **靜默自動化下載**：
-   若同時指定網址、類型與格式，程式將跳過所有選單自動下載：
-   ```bash
-   ./dl-media -u "網址" -m 3 -f mp4
-   ```
+### Windows 使用者
+請前往 [Releases](https://github.com/idolikechemistry/dl-media/releases) 頁面下載最新的 `dl-media-windows-x64.exe` 並手動放置於您的資料夾中。
 
 ---
 
@@ -62,27 +56,20 @@ brew install yt-dlp ffmpeg
 ---
 
 ## 🍪 Cookie 管理機制
-程式會根據網址自動對應 Cookie 檔案。輸入 `./dl-media --open-config` 即可開啟設定資料夾，請根據網站存入對應檔案：
+程式會根據網址自動對應 Cookie 檔案。輸入 `dl-media --open-config` 即可開啟設定資料夾，請根據網站存入對應檔案：
 - **YouTube**: `cookie_youtube.txt`
 - **Bilibili**: `cookie_bilibili.txt`
 - **Twitter/X**: `cookie_twitter.txt`
 - **Instagram**: `cookie_instagram.txt`
 
-> **提示**：若偵測到需要權限或畫質受限，程式會主動提醒。使用 `--fc` 參數可強制啟用 Cookie 驗證。
-
 ---
 
 ## 👨‍💻 自行編譯
-如果您希望從原始碼構建專案，請先安裝 [Rust 開發環境](https://rustup.rs/)：
+如果您希望從原始碼構建專案：
 ```bash
-# 複製專案
 git clone [https://github.com/idolikechemistry/dl-media.git](https://github.com/idolikechemistry/dl-media.git)
 cd dl-media
-
-# 編譯 Release 版本
 cargo build --release
-
-# 執行檔位置
 ./target/release/dl-media
 ```
 
