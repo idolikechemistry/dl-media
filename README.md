@@ -17,9 +17,9 @@
 ---
 
 無論您使用哪種安裝方式，請確保您的系統已安裝以下核心工具：
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)**: 影音下載核心。
-- **[ffmpeg](https://www.ffmpeg.org/download.html)**: 影音轉碼與封裝工具。
-- **[ffprobe](https://ffmpeg.org/ffprobe.html)**: 影音資訊解析工具。
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** : 影音下載核心。
+- **[ffmpeg](https://www.ffmpeg.org/download.html)** : 影音轉碼與封裝工具。
+- **[ffprobe](https://ffmpeg.org/ffprobe.html)** : 影音資訊解析工具。
 
 
 ---
@@ -28,12 +28,13 @@
 
 ### macOS / Linux 使用者
 請打開終端機並貼上以下指令。此指令會自動下載執行檔、賦予權限，並將其移動至系統路徑以便全域調用（此範例為 Mac Apple Silicon 版本）：
+
 ```bash
 curl -L [https://github.com/idolikechemistry/dl-media/releases/download/v0.2.1/dl-media-mac-arm64](https://github.com/idolikechemistry/dl-media/releases/download/v0.2.1/dl-media-mac-arm64) -o dl-media && \
 chmod +x dl-media && \
 sudo mv dl-media /usr/local/bin/
 ```
-*(注意：Linux 使用者請將網址中的檔名更改為 `dl-media-linux-x64` 即可)*
+*(注意：Linux 使用者請將網址中的 `dl-media-mac-arm64` 更改為 `dl-media-linux-x64` 即可)*
 
 ### Windows 使用者
 請前往 [Releases](https://github.com/idolikechemistry/dl-media/releases) 頁面下載最新的 `dl-media-windows-x64.exe` 並手動放置於您的資料夾中。
@@ -78,10 +79,13 @@ dl-media
 - **Twitter/X**: `cookie_twitter.txt`
 - **Instagram**: `cookie_instagram.txt`
 
+可自行搜尋瀏覽器插件來匯出cookie檔案
+
 ---
 
 ## 👨‍💻 自行編譯
 如果您希望從原始碼構建專案：
+
 ```bash
 git clone [https://github.com/idolikechemistry/dl-media.git](https://github.com/idolikechemistry/dl-media.git)
 cd dl-media
@@ -90,4 +94,3 @@ cargo build --release
 ```
 
 ---
-*Developed by [idolikechemistry](https://github.com/idolikechemistry)*
