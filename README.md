@@ -16,11 +16,11 @@
 
 ---
 
-## 🛠️ 執行前準備
 無論您使用哪種安裝方式，請確保您的系統已安裝以下核心工具：
-- **yt-dlp**: 影音下載核心。
-- **FFmpeg**: 影音轉碼與封裝工具。
-- **ffprobe**: 影音資訊解析工具。
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)**: 影音下載核心。
+- **[ffmpeg](https://www.ffmpeg.org/download.html)**: 影音轉碼與封裝工具。
+- **[ffprobe](https://ffmpeg.org/ffprobe.html)**: 影音資訊解析工具。
+
 
 ---
 
