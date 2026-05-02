@@ -10,19 +10,26 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
-#[command(name = "dl-media", about = "全能影音分析與下載器 (v0.1.9)")]
+#[command(name = "dl-media", about = "全能影音分析與下載器 (v0.2.1)")]
 struct Args {
-    // 🌟 v0.1.9 更新：補齊所有參數的詳細說明
     #[arg(short, long, help = "貼上要下載的影片或播放清單網址")]
     url: Option<String>,
+    
     #[arg(short, long, help = "指定下載類型 (音訊 → 1, 無聲影片 → 2, 有聲影片 → 3)")]
     media_type: Option<u8>,
+    
     #[arg(short, long, help = "指定輸出格式 (音訊格式 → mp3 or m4a，影片格式 → mp4 or mkv)")]
     format: Option<String>,
+
+    #[arg(short, long, help = "指定輸出資料夾路徑 (預設為系統的 Downloads)")]
+    output: Option<String>,
+    
     #[arg(short, long, help = "手動指定 Cookie 檔案路徑")]
     cookie: Option<String>,
+    
     #[arg(long, help = "打開應用程式設定資料夾 (用來放入 Cookie)")]
     open_config: bool,
+    
     #[arg(long = "fc", help = "強制調用 config 內已經儲存好的 Cookie，若無檔案則必定開啟資料夾等待")]
     force_cookie: bool,
 }
@@ -124,18 +131,6 @@ fn extract_site_name(url: &str) -> String {
 fn main() {
     let args = Args::parse();
 
-    // 🌟 v0.1.9 新增：早期防呆驗證，確保格式字串正確
-    if let Some(ref fmt) = args.format {
-        let valid_formats = ["mp4", "mkv", "mp3", "m4a"];
-        if !valid_formats.contains(&fmt.to_lowercase().as_str()) {
-            eprintln!("❌ 錯誤：不支援的格式設定 '{}'。", fmt);
-            eprintln!("💡 提示：-f 參數請輸入正確的副檔名，不要輸入數字。");
-            eprintln!("   - 音訊常用格式：mp3, m4a");
-            eprintln!("   - 影片常用格式：mp4, mkv");
-            std::process::exit(1);
-        }
-    }
-
     if args.open_config {
         open_config_folder();
         std::process::exit(0);
@@ -143,18 +138,56 @@ fn main() {
 
     check_dependencies();
 
+    // ==========================================
+    // 🌟 v0.2.1：早期嚴格參數防呆與匹配驗證 (第一層鎖)
+    // ==========================================
+    if let Some(m) = args.media_type {
+        if m < 1 || m > 3 {
+            eprintln!("❌ 錯誤：不支援的下載類型 '{}'。", m);
+            eprintln!("💡 提示：-m 參數請輸入 1, 2 或 3。");
+            eprintln!("   1 → 音訊");
+            eprintln!("   2 → 無聲影片");
+            eprintln!("   3 → 有聲影片");
+            std::process::exit(1);
+        }
+    }
+
+    if let Some(ref fmt) = args.format {
+        let valid_formats = ["mp4", "mkv", "mp3", "m4a"];
+        let f_lower = fmt.to_lowercase();
+        
+        if !valid_formats.contains(&f_lower.as_str()) {
+            eprintln!("❌ 錯誤：不支援的輸出格式 '{}'。", fmt);
+            eprintln!("💡 提示：-f 參數請輸入正確的副檔名。");
+            eprintln!("   音訊格式 → mp3, m4a");
+            eprintln!("   影片格式 → mp4, mkv");
+            std::process::exit(1);
+        }
+
+        // 檢查 -m 與 -f 兩者是否匹配
+        if let Some(m) = args.media_type {
+            if m == 1 && f_lower != "mp3" && f_lower != "m4a" {
+                eprintln!("❌ 錯誤：格式 '{}' 無法與類型 (音訊 -m 1) 匹配。", fmt);
+                eprintln!("💡 提示：下載音訊時，-f 只能設定為 mp3 或 m4a。");
+                std::process::exit(1);
+            } else if (m == 2 || m == 3) && f_lower != "mp4" && f_lower != "mkv" {
+                eprintln!("❌ 錯誤：格式 '{}' 無法與類型 (影片 -m {}) 匹配。", fmt, m);
+                eprintln!("💡 提示：下載影片時，-f 只能設定為 mp4 或 mkv。");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let is_silent = args.url.is_some() && args.media_type.is_some() && args.format.is_some();
+
     let mut active_params = Vec::new();
     if args.url.is_some() { active_params.push("已指定網址 (-u)".to_string()); }
     if let Some(m) = args.media_type {
-        let type_name = match m {
-            1 => "音訊",
-            2 => "無聲影片",
-            3 => "有聲影片",
-            _ => "未知類型",
-        };
+        let type_name = match m { 1 => "音訊", 2 => "無聲影片", 3 => "有聲影片", _ => "未知" };
         active_params.push(format!("類型:{} (-m)", type_name));
     }
     if let Some(ref f) = args.format { active_params.push(format!("格式:{} (-f)", f)); }
+    if let Some(ref o) = args.output { active_params.push(format!("輸出目錄:{} (-o)", o)); }
     if let Some(ref c) = args.cookie { active_params.push(format!("自訂Cookie路徑: {} (-c)", c)); }
     if args.force_cookie { active_params.push("強制調用Cookie (--fc)".to_string()); }
 
@@ -163,20 +196,14 @@ fn main() {
     // ==========================================
     let input_url = match args.url {
         Some(url) => {
-            println!("dl-media v0.1.9 🚀");
-            if !active_params.is_empty() {
-                println!("⚙️ 當前執行指令：{}", active_params.join(", "));
-            }
+            println!("dl-media v0.2.1 🚀");
+            if !active_params.is_empty() { println!("⚙️ 當前執行指令：{}", active_params.join(", ")); }
             url
         },
         None => {
-            println!("dl-media v0.1.9 🚀");
-            println!("(提示：輸入 './dl-media --help' 查看所有可用參數，例如 --fc 強制調用 Cookie)");
-            
-            if !active_params.is_empty() {
-                println!("⚙️ 當前執行指令：{}", active_params.join(", "));
-            }
-            
+            println!("dl-media v0.2.1 🚀");
+            println!("(提示：輸入 './dl-media --help' 查看所有可用參數)");
+            if !active_params.is_empty() { println!("⚙️ 當前執行指令：{}", active_params.join(", ")); }
             Input::with_theme(&ColorfulTheme::default()).with_prompt("🔗 請貼上影片或播放清單網址").interact_text().unwrap()
         }
     };
@@ -217,9 +244,7 @@ fn main() {
         }
     }
     
-    if valid_urls.is_empty() {
-        valid_urls.push(input_url.clone());
-    }
+    if valid_urls.is_empty() { valid_urls.push(input_url.clone()); }
     let mut total = valid_urls.len();
 
     println!("--------------------------------------------------");
@@ -275,11 +300,16 @@ fn main() {
         } else if has_restricted {
             println!("⚠️ config 內未偵測到 {} 專用 Cookie ({})", site_target, expected_filename);
             
-            let want_to_wait = Confirm::with_theme(&ColorfulTheme::default())
-                .with_prompt("此內容可能需要 Cookie 才能取得完整權限。是否要現在開啟設定檔放入？")
-                .default(true)
-                .interact()
-                .unwrap();
+            let want_to_wait = if is_silent {
+                println!("⚙️ 靜默模式執行中，跳過手動放入 Cookie 的互動等待步驟。");
+                false
+            } else {
+                Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("此內容可能需要 Cookie 才能取得完整權限。是否要現在開啟設定檔放入？")
+                    .default(true)
+                    .interact()
+                    .unwrap()
+            };
 
             if want_to_wait {
                 println!("📂 正在為您開啟 config 目錄：{}", config_path.display());
@@ -304,14 +334,14 @@ fn main() {
                 } else {
                     println!("⏳ 仍未偵測到檔案。程式將以無 Cookie 的「訪客模式」繼續。");
                 }
-            } else {
+            } else if !is_silent {
                 println!("👻 跳過設定，程式將以「訪客模式」繼續嘗試下載。");
             }
         }
     }
 
     // ==========================================
-    // 步驟 5：重新掃描
+    // 步驟 5：重新掃描清單
     // ==========================================
     if has_loaded_cookie && is_playlist {
         println!("🔄 正在透過 Cookie 驗證並重新掃描清單...");
@@ -333,10 +363,7 @@ fn main() {
             }
         }
             
-        if new_urls.is_empty() {
-            new_urls.push(input_url.clone());
-        }
-        
+        if new_urls.is_empty() { new_urls.push(input_url.clone()); }
         let new_total = new_urls.len();
         
         if new_total > total {
@@ -345,39 +372,52 @@ fn main() {
             println!("📋 更新解析結果：共包含 {} 部有效內容！", new_total);
             println!("--------------------------------------------------");
         }
-        
         valid_urls = new_urls;
         total = new_total;
     }
 
     // ==========================================
-    // 步驟 6 & 7：選擇類型與格式
+    // 步驟 6 & 7：選擇類型與格式 (受靜默模式控制)
     // ==========================================
     println!("--------------------------------------------------");
     let media_type = match args.media_type {
         Some(mt) => mt,
         None => {
-            let types = vec!["音訊", "無聲影片", "有聲影片"];
-            (Select::with_theme(&ColorfulTheme::default()).with_prompt("下載類型").default(0).items(&types).interact().unwrap() + 1) as u8
+            let types = vec!["🎧 音訊", "🔕 無聲影片", "🎥 有聲影片"];
+            (Select::with_theme(&ColorfulTheme::default()).with_prompt("🎯 下載類型").default(0).items(&types).interact().unwrap() + 1) as u8
         }
     };
 
     let target_ext = match args.format {
-        Some(fmt) => fmt,
+        Some(fmt) => {
+            // 🌟 v0.2.1：晚期互動防呆 (第二層鎖)
+            let f_lower = fmt.to_lowercase();
+            if media_type == 1 && f_lower != "mp3" && f_lower != "m4a" {
+                eprintln!("❌ 錯誤：預先設定的格式 '{}' 與最後選擇的【音訊】類型不符。", fmt);
+                eprintln!("💡 提示：音訊格式僅支援 mp3 或 m4a。");
+                std::process::exit(1);
+            } else if (media_type == 2 || media_type == 3) && f_lower != "mp4" && f_lower != "mkv" {
+                eprintln!("❌ 錯誤：預先設定的格式 '{}' 與最後選擇的【影片】類型不符。", fmt);
+                eprintln!("💡 提示：影片格式僅支援 mp4 或 mkv。");
+                std::process::exit(1);
+            }
+            f_lower
+        },
         None => {
             if media_type == 1 {
                 let formats = vec!["M4A (原生無損)", "MP3 (320k)"];
-                let sel = Select::with_theme(&ColorfulTheme::default()).with_prompt("音訊格式").default(0).items(&formats).interact().unwrap();
+                let sel = Select::with_theme(&ColorfulTheme::default()).with_prompt("🎵 音訊格式").default(0).items(&formats).interact().unwrap();
                 if sel == 1 { "mp3".to_string() } else { "m4a".to_string() }
             } else {
                 let formats = vec!["MP4 (高相容)", "MKV (最高畫質)"];
-                let sel = Select::with_theme(&ColorfulTheme::default()).with_prompt("影片格式").default(0).items(&formats).interact().unwrap();
+                let sel = Select::with_theme(&ColorfulTheme::default()).with_prompt("🎞️ 影片格式").default(0).items(&formats).interact().unwrap();
                 if sel == 1 { "mkv".to_string() } else { "mp4".to_string() }
             }
         }
     };
 
     let mut dl_args: Vec<String> = vec![
+        "--quiet", "--progress", "--no-warnings", 
         "--ignore-errors", "--no-overwrites", "--embed-thumbnail", "--embed-metadata", 
         "--embed-chapters", "--convert-thumbnails", "jpg", "--restrict-filenames",
         "--sponsorblock-remove", "sponsor,intro,outro",
@@ -408,7 +448,17 @@ fn main() {
         }
     }
 
-    let mut target_dir = download_dir().expect("無法找到下載目錄");
+    let mut target_dir = match args.output {
+        Some(ref path) => PathBuf::from(path),
+        None => download_dir().expect("無法找到預設下載目錄"),
+    };
+
+    if !target_dir.exists() {
+        if let Err(e) = fs::create_dir_all(&target_dir) {
+            eprintln!("❌ 錯誤：無法建立輸出目錄 '{}' ({})", target_dir.display(), e);
+            std::process::exit(1);
+        }
+    }
     
     if is_playlist {
         let title_output = Command::new("yt-dlp")
