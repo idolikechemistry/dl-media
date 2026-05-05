@@ -1,127 +1,179 @@
-use dialoguer::{theme::ColorfulTheme, Confirm};
+use crate::config::Config;
+use anyhow::{Context, Result};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use dirs::config_dir;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// 檢查系統環境是否具備 yt-dlp, ffmpeg, ffprobe
-pub fn check_dependencies() {
+/// 1. 檢查系統環境是否具備必要工具
+pub fn check_dependencies() -> Result<()> {
     let deps = [
         ("yt-dlp", "https://github.com/yt-dlp/yt-dlp#installation"),
         ("ffmpeg", "https://ffmpeg.org/download.html"),
         ("ffprobe", "https://ffmpeg.org/download.html"),
+        ("danmaku2ass", "https://github.com/m13253/danmaku2ass"),
     ];
-    
+
     let mut missing = Vec::new();
 
     for (dep, url) in deps {
-        if Command::new(dep).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err() {
+        // 同時檢查 --version 與 -h 以確保工具存在
+        if Command::new(dep).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err()
+            && Command::new(dep).arg("-h").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err()
+        {
             missing.push((dep, url));
         }
     }
 
     if !missing.is_empty() {
-        println!("❌ 偵測到缺少必要組件，請先安裝以下工具以繼續執行：\n");
+        let mut error_msg = String::from("❌ 偵測到缺少必要組件，請先安裝以下工具：\n\n");
         for (name, url) in missing {
-            println!("  📌 [{}]", name);
-            println!("     👉 手動下載：{}", url);
+            error_msg.push_str(&format!("  📌 [{}]\n     👉 下載：{}\n", name, url));
             #[cfg(target_os = "macos")]
-            println!("     💻 Mac 安裝指令：brew install {}", name);
+            if name != "danmaku2ass" {
+                error_msg.push_str(&format!("     💻 Mac 指令：brew install {}\n", name));
+            }
         }
-        println!("\n完成安裝後請重啟程式！");
-        std::process::exit(1);
+        anyhow::bail!(error_msg);
     }
+    Ok(())
 }
 
-/// 取得並確保應用程式的專屬設定資料夾存在
-pub fn get_app_config_dir() -> PathBuf {
-    let mut path = config_dir().expect("無法取得系統設定目錄");
+/// 2. 初始化設定環境：建立資料夾與產生預設 config.toml
+pub fn init_config() -> Result<(PathBuf, Config)> {
+    let mut path = config_dir().context("無法取得系統設定目錄")?;
     path.push("dl-media");
     if !path.exists() {
-        fs::create_dir_all(&path).expect("無法建立應用程式設定資料夾");
+        fs::create_dir_all(&path).context("無法建立應用程式設定資料夾")?;
     }
-    path
+
+    let config_file = path.join("config.toml");
+    if !config_file.exists() {
+        fs::write(&config_file, Config::default_template()).context("生成預設設定檔失敗")?;
+        println!("✨ 已在設定資料夾生成新的 config.toml。");
+    }
+
+    let config_data = Config::load(&config_file)?;
+    Ok((path, config_data))
 }
 
-/// 開啟設定資料夾 (供使用者放入 Cookie)
-pub fn open_config_folder() {
-    let path = get_app_config_dir();
-    println!("📂 正在開啟設定資料夾：{}", path.display());
+/// 3. 互動式設定引導 (TUI)：支援拖曳路徑輸入
+pub fn interactive_config_setup(config_path: &Path, mut config: Config) -> Result<()> {
+    let theme = ColorfulTheme::default();
+
+    loop {
+        let options = vec![
+            format!("📂 下載目錄 [目前: {}]", config.download_dir.as_deref().unwrap_or("預設 (Downloads)")),
+            format!("⏳ 暫存目錄 [目前: {}]", config.tmp_dir.as_deref().unwrap_or("預設 (與下載目錄相同)")),
+            format!("🍪 Cookie 目錄 [目前: {}]", config.cookie_dir.as_deref().unwrap_or("預設 (App設定夾)")),
+            "✅ 完成並退出".to_string(),
+        ];
+
+        let selection = Select::with_theme(&theme)
+            .with_prompt("🛠️  dl-media 偏好設定引導 (請使用上下鍵選擇)")
+            .items(&options)
+            .default(0)
+            .interact()?;
+
+        if selection == 3 { break; } // 選擇退出
+
+        println!("\n💡 操作指引：");
+        println!("   1. 我現在會為您開啟資料夾視窗。");
+        println!("   2. 請在視窗中找到目標資料夾，並將其「拖入」此終端機視窗中。");
+        
+        // 自動幫使用者開啟設定資料夾作為起點
+        let _ = open_folder(&config_path.parent().unwrap().to_path_buf());
+
+        let input_path: String = Input::with_theme(&theme)
+            .with_prompt("📍 請拖入路徑並按下 Enter")
+            .interact_text()?;
+
+        // 核心邏輯：清理拖曳路徑產生的特殊字元 (例如引號或 Mac 的轉義空白)
+        let cleaned_path = input_path.trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .replace("\\ ", " "); // 處理 Mac 終端機拖曳產生的轉義空白
+
+        match selection {
+            0 => config.download_dir = Some(cleaned_path),
+            1 => config.tmp_dir = Some(cleaned_path),
+            2 => config.cookie_dir = Some(cleaned_path),
+            _ => {}
+        }
+
+        // 即時儲存，保證設定不遺失
+        config.save(config_path).context("儲存設定失敗")?;
+        println!("✨ 設定已更新！\n");
+    }
+
+    Ok(())
+}
+
+/// 4. 輔助函式：開啟系統檔案總管
+pub fn open_folder(path: &PathBuf) -> Result<()> {
     #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg(&path).status();
+    let _ = Command::new("open").arg(path).status();
     #[cfg(target_os = "windows")]
-    let _ = Command::new("explorer").arg(&path).status();
+    let _ = Command::new("explorer").arg(path).status();
     #[cfg(target_os = "linux")]
-    let _ = Command::new("xdg-open").arg(&path).status();
+    let _ = Command::new("xdg-open").arg(path).status();
+    Ok(())
 }
 
-/// 負責尋找 Cookie、提示使用者放入 Cookie，並產生 yt-dlp 需要的參數
+/// 5. 處理 Cookie 載入邏輯
 pub fn handle_cookies(
     site_target: &str,
     has_restricted: bool,
     manual_cookie: &Option<String>,
+    resolved_cookie_dir: &PathBuf,
     is_silent: bool,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     let mut cookie_args = Vec::new();
 
-    // 1. 優先檢查使用者是否手動指定了 Cookie 檔案 (-c 參數)
+    // 優先權 1：命令列 -c 指定
     if let Some(manual_path_str) = manual_cookie {
         let path = PathBuf::from(manual_path_str);
         if path.exists() {
             cookie_args.push("--cookies".to_string());
             cookie_args.push(path.to_string_lossy().to_string());
-            println!("🍪 已載入自訂 Cookie 檔案：{}", path.display());
-            return cookie_args;
-        } else {
-            println!("⚠️ 找不到指定的 Cookie 檔案：{}", path.display());
+            println!("🍪 已套用自訂 Cookie：{}", path.display());
+            return Ok(cookie_args);
         }
     }
 
-    // 2. 檢查自動設定資料夾內的專屬 Cookie
-    let config_path = get_app_config_dir();
+    // 優先權 2：設定路徑下的 cookie_site.txt
     let expected_filename = format!("cookie_{}.txt", site_target);
-    let target_file = config_path.join(&expected_filename);
-    
+    let target_file = resolved_cookie_dir.join(&expected_filename);
+
     if target_file.exists() {
         cookie_args.push("--cookies".to_string());
         cookie_args.push(target_file.to_string_lossy().to_string());
-        println!("🍪 已從 config 載入 {} 專用 Cookie：{}", site_target, expected_filename);
+        println!("🍪 已載入 {} 專用 Cookie", site_target);
     } else if has_restricted {
-        // 3. 如果找不到，但又偵測到權限受限，觸發互動引導
-        println!("⚠️ config 內未偵測到 {} 專用 Cookie ({})", site_target, expected_filename);
-        
-        let want_to_wait = if is_silent {
-            println!("⚙️ 靜默模式執行中，跳過手動放入 Cookie 的互動等待步驟。");
-            false
-        } else {
+        println!("⚠️ 未偵測到 {} 專用 Cookie ({})", site_target, expected_filename);
+
+        let want_to_wait = if is_silent { false } else {
             Confirm::with_theme(&ColorfulTheme::default())
-                .with_prompt("此內容可能需要 Cookie 才能取得完整權限。是否要現在開啟設定檔放入？")
+                .with_prompt("此內容需要權限。是否要現在開啟 Cookie 目錄放入？")
                 .default(true)
-                .interact()
-                .unwrap()
+                .interact()?
         };
 
         if want_to_wait {
-            open_config_folder();
-            
-            println!("⏳ 請將 {} 放入剛開啟的資料夾中。", expected_filename);
-            println!("👉 放入完成後，請在終端機按下「Enter」鍵繼續...");
-            
+            open_folder(resolved_cookie_dir)?;
+            println!("⏳ 請將 {} 放入資料夾，完成後按下 Enter 繼續...", expected_filename);
             let mut _pause = String::new();
-            io::stdin().read_line(&mut _pause).unwrap();
+            io::stdin().read_line(&mut _pause)?;
 
             if target_file.exists() {
-                println!("🎉 偵測到 Cookie 檔案！已成功套用。");
+                println!("🎉 偵測到 Cookie！已成功套用。");
                 cookie_args.push("--cookies".to_string());
                 cookie_args.push(target_file.to_string_lossy().to_string());
-            } else {
-                println!("⏳ 仍未偵測到檔案。程式將以無 Cookie 的「訪客模式」繼續。");
             }
-        } else if !is_silent {
-            println!("👻 跳過設定，程式將以「訪客模式」繼續嘗試下載。");
         }
     }
 
-    cookie_args
+    Ok(cookie_args)
 }

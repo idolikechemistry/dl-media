@@ -1,28 +1,36 @@
 use std::process::Command;
+use anyhow::{Result, Context};
+
+/// 定義影片資訊結構體，用來在模組間傳遞資訊
+#[derive(Debug, Clone)]
+pub struct VideoItem {
+    pub title: String,
+    pub url: String,
+}
 
 /// 從網址中萃取出網站名稱，用來判斷後續對應的 Cookie 檔案
 pub fn extract_site_name(url: &str) -> String {
-    let host = url.replace("https://", "").replace("http://", "").replace("www.", "");
-    let domain = host.split('/').next().unwrap_or("unknown");
+    let url_lower = url.to_lowercase();
+    // 優先檢查特定廣告或轉址域名
+    if url_lower.contains("youtube.com") || url_lower.contains("youtu.be") || url_lower.contains("googleusercontent.com") { return "youtube".into(); }
+    if url_lower.contains("bilibili.com") || url_lower.contains("b23.tv") { return "bilibili".into(); }
+    if url_lower.contains("twitter.com") || url_lower.contains("x.com") { return "twitter".into(); }
+    if url_lower.contains("facebook.com") || url_lower.contains("fb.watch") { return "facebook".into(); }
+    if url_lower.contains("instagram.com") { return "instagram".into(); }
     
-    if domain.contains("youtu.be") || domain.contains("youtube.com") { return "youtube".to_string(); }
-    if domain.contains("b23.tv") || domain.contains("bilibili.com") { return "bilibili".to_string(); }
-    if domain.contains("x.com") || domain.contains("twitter.com") { return "twitter".to_string(); }
-    if domain.contains("fb.watch") || domain.contains("facebook.com") { return "facebook".to_string(); }
-    if domain.contains("instagram.com") { return "instagram".to_string(); }
-    
-    let parts: Vec<&str> = domain.split('.').collect();
-    if parts.len() >= 2 {
-        parts[parts.len() - 2].to_string()
-    } else {
-        domain.to_string()
-    }
+    // 備用方案：解析網域中的主名稱
+    url_lower.split('/')
+        .nth(2)
+        .and_then(|d| d.split('.').rev().nth(1))
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 /// 透過 yt-dlp 的 JSON 輸出，判斷影片是否含有一般字幕或自動產生字幕
 pub fn has_subtitles(url: &str, cookie_args: &[String]) -> bool {
     let mut cmd = Command::new("yt-dlp");
     cmd.args(cookie_args).args(["--dump-json", "--no-warnings", "--playlist-items", "1", url]);
+    
     if let Ok(output) = cmd.output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
@@ -34,102 +42,141 @@ pub fn has_subtitles(url: &str, cookie_args: &[String]) -> bool {
     false
 }
 
-/// 掃描目標網址：分析是否為播放清單、抓出所有影片網址，並偵測是否有權限限制
-pub fn scan_url(input_url: &str, force_cookie: bool, site_target: &str) -> (Vec<String>, bool, bool) {
-    println!("🔍 正在初步分析網址資訊...");
-    
-    // 檢查是否為播放清單
-    let pl_check = Command::new("yt-dlp")
-        .args(["--print", "playlist_title", "--no-warnings", "--playlist-items", "1", input_url])
-        .output().expect("檢查清單屬性失敗");
-    let pl_title = String::from_utf8_lossy(&pl_check.stdout).trim().to_string();
-    let is_playlist = !pl_title.is_empty() && pl_title != "NA" && pl_title != "null";
+/// 掃描目標網址：獲取包含標題與網址的 VideoItem 列表
+pub fn scan_url(input_url: &str, force_cookie: bool, site_target: &str) -> Result<(Vec<VideoItem>, bool, bool)> {
+    println!("🔍 正在分析網址資訊...");
 
-    // 展開清單並獲取網址
-    let scan_output = Command::new("yt-dlp")
-        .args(["--flat-playlist", "--print", "%(title)s|%(webpage_url)s", "--ignore-errors", "--no-warnings", input_url])
-        .output().expect("解析清單失敗");
+    let output = Command::new("yt-dlp")
+        .args([
+            "--flat-playlist",
+            "--print", "playlist:%(playlist_title)s",
+            "--print", "item:%(title)s|%(webpage_url)s",
+            "--ignore-errors",
+            "--no-warnings",
+            input_url
+        ])
+        .output()
+        .context("執行 yt-dlp 解析清單失敗")?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let stderr_str = String::from_utf8_lossy(&output.stderr).to_lowercase();
     
-    let stdout_str = String::from_utf8_lossy(&scan_output.stdout);
-    let stderr_str = String::from_utf8_lossy(&scan_output.stderr).to_lowercase();
+    let mut valid_videos = Vec::new();
+    let mut is_playlist = false;
     
-    let mut valid_urls: Vec<String> = Vec::new();
-    let mut has_restricted = force_cookie || stderr_str.contains("sign in") || stderr_str.contains("login") 
-        || stderr_str.contains("cookie") || stderr_str.contains("登錄") || stderr_str.contains("private");
+    let mut has_restricted = force_cookie 
+        || stderr_str.contains("sign in") 
+        || stderr_str.contains("login") 
+        || stderr_str.contains("cookie")
+        || stderr_str.contains("登錄")
+        || stderr_str.contains("private");
 
     for line in stdout_str.lines() {
-        if line.trim().is_empty() { continue; }
-        if line.contains("[Private video]") || line.contains("[Deleted video]") || line.contains("Private") {
-            has_restricted = true;
-        } else if let Some((_title, url)) = line.rsplit_once('|') {
-            valid_urls.push(url.to_string());
-        } else {
-            valid_urls.push(line.to_string());
+        if let Some(pl_title) = line.strip_prefix("playlist:") {
+            if pl_title != "NA" && !pl_title.is_empty() && pl_title != "null" { is_playlist = true; }
+        } else if let Some(item) = line.strip_prefix("item:") {
+            // 偵測私人影片標籤
+            if item.contains("[Private video]") || item.contains("[Deleted video]") || item.contains("Private") {
+                has_restricted = true;
+            } else if let Some((title, url)) = item.rsplit_once('|') {
+                // 成功抓到標題與網址，封裝進 VideoItem
+                valid_videos.push(VideoItem {
+                    title: title.to_string(),
+                    url: url.to_string(),
+                });
+            }
         }
     }
-    
-    if valid_urls.is_empty() { valid_urls.push(input_url.to_string()); }
-    let total = valid_urls.len();
 
-    // 輸出分析結果
-    println!("--------------------------------------------------");
-    println!("📡 來源網站：{}", site_target);
-    if is_playlist {
-        println!("📋 內容類型：【播放清單】 (包含 {} 部內容)", total);
-    } else {
-        println!("📄 內容類型：【單一內容】");
+    // Fallback：如果沒有解析出任何影片（可能是單一影片且解析失敗），將輸入網址包裝進去
+    if valid_videos.is_empty() {
+        valid_videos.push(VideoItem {
+            title: "Video".to_string(),
+            url: input_url.to_string(),
+        });
     }
 
-    if force_cookie {
-        println!("🔒 權限狀態：⚠️ 您已啟用強制調用 config 內 Cookie 的模式 (--fc)");
-    } else if has_restricted {
-        println!("🔒 權限狀態：⚠️ 偵測到受限/私人內容！(需提供 Cookie 才能解鎖)");
-    } else if site_target == "bilibili" {
-        println!("🔓 權限狀態：公開 (💡 Bilibili 建議使用 Cookie 解鎖 1080p 高畫質)");
-        has_restricted = true;
-    } else {
-        if site_target == "instagram" || site_target == "facebook" || site_target == "twitter" {
-            println!("🔓 權限狀態：公開 (💡 若實際下載失敗，可加上 --fc 參數重試)");
-        } else {
-            println!("🔓 權限狀態：公開 (目前無偵測到存取限制)");
-        }
-    }
-    println!("--------------------------------------------------");
+    if site_target == "bilibili" { has_restricted = true; }
 
-    (valid_urls, is_playlist, has_restricted)
+    print_analysis_report(site_target, is_playlist, valid_videos.len(), has_restricted, force_cookie);
+
+    Ok((valid_videos, is_playlist, has_restricted))
 }
 
-/// 如果發現有載入 Cookie，則重新掃描清單，試圖挖出隱藏或會員專屬影片
-pub fn rescan_with_cookies(input_url: &str, cookie_args: &[String], original_total: usize) -> Vec<String> {
+/// 透過 Cookie 重新掃描，回傳更新後的 VideoItem 列表
+pub fn rescan_with_cookies(input_url: &str, cookie_args: &[String], original_total: usize) -> Result<Vec<VideoItem>> {
     println!("🔄 正在透過 Cookie 驗證並重新掃描清單...");
-    let rescan_output = Command::new("yt-dlp")
-        .args(cookie_args)
-        .args(["--flat-playlist", "--print", "%(title)s|%(webpage_url)s", "--ignore-errors", "--no-warnings", input_url])
-        .output().expect("重新解析清單失敗");
-        
-    let rescan_str = String::from_utf8_lossy(&rescan_output.stdout);
-    let mut new_urls: Vec<String> = Vec::new();
     
-    for line in rescan_str.lines() {
-        if line.trim().is_empty() { continue; }
-        // 過濾掉確定無法下載的私人或刪除影片
-        if line.contains("[Private video]") || line.contains("[Deleted video]") { continue; }
-        if let Some((_title, url)) = line.rsplit_once('|') {
-            new_urls.push(url.to_string());
-        } else {
-            new_urls.push(line.to_string());
+    let output = Command::new("yt-dlp")
+        .args(cookie_args)
+        .args(["--flat-playlist", "--print", "item:%(title)s|%(webpage_url)s", "--ignore-errors", "--no-warnings", input_url])
+        .output()
+        .context("透過 Cookie 重新解析清單失敗")?;
+        
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut new_videos = Vec::new();
+    
+    for line in stdout_str.lines() {
+        if let Some(item) = line.strip_prefix("item:") {
+            if item.contains("[Private video]") || item.contains("[Deleted video]") { continue; }
+            if let Some((title, url)) = item.rsplit_once('|') {
+                new_videos.push(VideoItem {
+                    title: title.to_string(),
+                    url: url.to_string(),
+                });
+            }
         }
     }
         
-    if new_urls.is_empty() { new_urls.push(input_url.to_string()); }
-    let new_total = new_urls.len();
+    if new_videos.is_empty() {
+        new_videos.push(VideoItem { title: "Video".to_string(), url: input_url.to_string() });
+    }
     
+    let new_total = new_videos.len();
     if new_total > original_total {
         println!("--------------------------------------------------");
-        println!("🔓 解鎖成功！透過 Cookie 發現了隱藏/會員專屬內容。");
-        println!("📋 更新解析結果：共包含 {} 部有效內容！", new_total);
+        println!("🔓 解鎖成功！透過 Cookie 發現了 {} 部隱藏/會員專屬內容。", new_total - original_total);
         println!("--------------------------------------------------");
     }
     
-    new_urls
+    Ok(new_videos)
+}
+
+fn print_analysis_report(site: &str, is_pl: bool, count: usize, restricted: bool, forced: bool) {
+    println!("--------------------------------------------------");
+    println!("📡 來源網站：{}", site);
+    println!("📋 內容類型：{}", if is_pl { format!("【播放清單】(包含 {} 部內容)", count) } else { "【單一內容】".into() });
+    
+    let status = if forced { "⚠️ 強制調用 Cookie 模式" }
+                else if restricted { "⚠️ 偵測到限制內容 (需 Cookie)" }
+                else { "🔓 公開內容" };
+    println!("🔒 權限狀態：{}", status);
+    println!("--------------------------------------------------");
+}
+
+use serde_json::Value;
+
+/// 獲取網址可用的字幕語言列表 (預檢)
+pub fn get_available_subtitles(url: &str, cookie_args: &[String]) -> Vec<String> {
+    let output = std::process::Command::new("yt-dlp")
+        .args(cookie_args)
+        .args(["--dump-json", "--no-warnings", "--skip-download", url])
+        .output();
+
+    let mut langs = Vec::new();
+    if let Ok(out) = output {
+        if let Ok(json) = serde_json::from_slice::<Value>(&out.stdout) {
+            // 檢查手動上傳的字幕與自動生成的字幕
+            for sub_type in ["subtitles", "automatic_captions"] {
+                if let Some(subs) = json.get(sub_type).and_then(|s| s.as_object()) {
+                    for lang in subs.keys() {
+                        langs.push(lang.clone());
+                    }
+                }
+            }
+        }
+    }
+    langs.sort();
+    langs.dedup();
+    langs
 }
