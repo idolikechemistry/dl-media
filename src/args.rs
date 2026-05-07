@@ -3,32 +3,26 @@ use clap::{Parser, ValueEnum};
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
 pub enum MediaType {
     /// 🎧 純音訊下載
+    #[value(alias = "1")]
     Audio = 1,
     /// 🔕 無聲影片下載
+    #[value(alias = "2")]
     VideoOnly = 2,
     /// 🎥 有聲影片下載
+    #[value(alias = "3")]
     Video = 3,
 }
 
-// 實作自定義解析器，讓 -m 支援 1, 2, 3 或文字
-fn parse_media_type(s: &str) -> Result<MediaType, String> {
-    match s {
-        "1" | "audio" => Ok(MediaType::Audio),
-        "2" | "video-only" => Ok(MediaType::VideoOnly),
-        "3" | "video" => Ok(MediaType::Video),
-        _ => Err(format!("無效的下載類型 '{}'。請使用 1, 2, 3 或對應名稱。", s)),
-    }
-}
-
 #[derive(Parser, Debug)]
-#[command(name = "dl-media", version = "0.2.2", about = "影音下載器")]
+// 🎯 核心修改：移除硬編碼，改為自動讀取 Cargo.toml 的 version 和 description
+#[command(version, about, long_about = None)]
 pub struct Args {
     /// 貼上要下載的影片或播放清單網址
     #[arg(short, long)]
     pub url: Option<String>,
 
-    /// 指定下載類型 (1: 音訊, 2: 無聲影片, 3: 有聲影片)
-    #[arg(short, long, value_parser = parse_media_type)]
+    /// 指定下載類型 (支援 1, 2, 3 或對應名稱)
+    #[arg(short, long, value_enum)]
     pub media_type: Option<MediaType>,
 
     /// 指定輸出格式 (mp3, m4a, mp4, mkv)
@@ -48,7 +42,6 @@ pub struct Args {
     pub open_config: bool,
 
     /// 強制調用儲存好的 Cookie
-    // 顯式指定為 "fc"，這樣它在終端機就會變回 --fc
     #[arg(long = "fc", alias = "force-cookie")] 
     pub force_cookie: bool,
 }

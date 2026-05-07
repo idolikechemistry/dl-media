@@ -6,31 +6,14 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 
-/// 構建 yt-dlp 的下載指令參數 (不含輸出路徑與網址)
-pub fn build_download_args(media_type: u8, target_ext: &str, input_url: &str, cookie_args: &[String]) -> Vec<String> {
+/// 構建 yt-dlp 的下載指令參數 (不含輸出路徑、網址與動態字幕)
+pub fn build_download_args(media_type: u8, target_ext: &str, _input_url: &str, _cookie_args: &[String]) -> Vec<String> {
     let mut dl_args: Vec<String> = vec![
         "--quiet".into(), "--progress".into(), "--no-warnings".into(), "--ignore-errors".into(),
         "--no-overwrites".into(), "--embed-thumbnail".into(), "--embed-metadata".into(),
         "--embed-chapters".into(), "--convert-thumbnails".into(), "jpg".into(), "--restrict-filenames".into(),
         "--sponsorblock-remove".into(), "sponsor,intro,outro".into(),
     ];
-
-    // 🎯 影片模式 (2 或 3)：預設全自動抓取所有字幕與彈幕並準備嵌入
-    if media_type != 1 {
-        let is_bilibili = input_url.contains("bilibili.com") || input_url.contains("b23.tv");
-        
-        if is_bilibili || parser::has_subtitles(input_url, cookie_args) {
-            let mut sub_args = vec!["--write-subs".into(), "--write-auto-subs".into()];
-            
-            // 🛑 若不是 B 站，讓 yt-dlp 自己 embed；B 站則交給我們的 danmaku2ass 處理
-            if !is_bilibili {
-                sub_args.push("--embed-subs".into());
-            }
-            
-            dl_args.extend(sub_args);
-            dl_args.extend(vec!["--sub-langs".into(), "zh-Hant,zh-TW,zh-HK,zh-Hans,zh,en,ja,danmaku".into()]);
-        }
-    }
 
     if media_type == 1 {
         // 音訊模式
@@ -52,23 +35,21 @@ pub fn build_download_args(media_type: u8, target_ext: &str, input_url: &str, co
     dl_args
 }
 
-/// 準備最終存檔資料夾 (處理播放清單子目錄邏輯)
+/// 準備最終存檔資料夾
 pub fn prepare_output_dir(base_dir: &PathBuf, input_url: &str, cookie_args: &[String], is_pl: bool) -> PathBuf {
     let mut dir = base_dir.clone();
     let _ = fs::create_dir_all(&dir);
     
     if is_pl {
-        // 如果是播放清單，嘗試抓取清單名稱作為子資料夾
         let title = Command::new("yt-dlp")
             .args(cookie_args)
-            .args(["--print", "playlist_title", "--no-warnings", "--playlist-items", "1", input_url])
+            .args(["--print", "playlist_title", "--no-warnings", "--playlist-items", "1", "--skip-download", input_url])
             .output()
             .ok()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .filter(|t| !t.is_empty() && t != "NA" && t != "null")
             .unwrap_or_else(|| "Playlist".into());
             
-        // 清理非法字元
         dir = dir.join(title.replace(&['/', '\\', ':', '*', '?', '"', '<', '>', '|'][..], "_"));
         let _ = fs::create_dir_all(&dir);
     }
@@ -83,8 +64,8 @@ pub fn execute_download_loop(
     target_ext: &str,
     dl_args: Vec<String>,
     cookie_args: Vec<String>,
-    target_dir: PathBuf, // 最終存檔目錄
-    tmp_dir: PathBuf,    // 暫存加工目錄
+    target_dir: PathBuf,
+    tmp_dir: PathBuf,
     force_cookie: bool,
 ) -> anyhow::Result<()> {
     let mut success_count = 0;
@@ -92,7 +73,6 @@ pub fn execute_download_loop(
     let start_time = Instant::now();
     let total = valid_videos.len();
 
-    // 確保暫存目錄存在
     let _ = fs::create_dir_all(&tmp_dir);
 
     for (idx, video) in valid_videos.iter().enumerate() {
@@ -111,53 +91,50 @@ pub fn execute_download_loop(
 
         let mut current_dl_args = dl_args.clone();
 
-        // 🎯 核心修改：純音訊模式在此啟動 TUI 歌詞選單
-        if media_type == 1 {
-            println!("🔍 正在掃描可用歌詞/字幕...");
-            let avai_subs = parser::get_available_subtitles(&video.url, &cookie_args);
-            let chosen_langs = crate::ui::select_subtitles(&avai_subs);
-            
-            if !chosen_langs.is_empty() {
-                current_dl_args.push("--write-subs".into());
-                current_dl_args.push("--write-auto-subs".into());
-                current_dl_args.push("--sub-langs".into());
-                current_dl_args.push(chosen_langs.join(","));
-            } else {
-                println!("📌 未選擇任何歌詞，將進行純音訊下載。");
-            }
+        // 🎯 統一選單邏輯：影音全線啟動字幕預檢
+        println!("🔍 正在掃描可用字幕/彈幕...");
+        let avai_subs = parser::get_available_subtitles(&video.url, &cookie_args);
+        let chosen_langs = crate::ui::select_subtitles(&avai_subs);
+        
+        if !chosen_langs.is_empty() {
+            current_dl_args.push("--write-subs".into());
+            current_dl_args.push("--write-auto-subs".into());
+            current_dl_args.push("--sub-langs".into());
+            current_dl_args.push(chosen_langs.join(","));
+            // 注意：我們刻意不加 --embed-subs，因為我們要手動清洗後再用 ffmpeg 壓進去
+        } else {
+            println!("📌 未選擇任何額外字幕軌道。");
         }
 
-        // 將下載輸出模板導向 tmp_dir
         let tmp_output_template = format!("{}/tmp_{}.%(ext)s", tmp_dir.to_string_lossy(), ts);
         current_dl_args.push("-o".into());
         current_dl_args.push(tmp_output_template);
         current_dl_args.push(video.url.clone());
 
         let status = Command::new("yt-dlp")
+            .current_dir(&tmp_dir) 
             .args(&cookie_args)
             .args(&current_dl_args)
             .status();
 
         if status.map_or(false, |s| s.success()) {
-            // 1. 在暫存目錄中尋找下載好的主檔案
             if let Some(downloaded_file) = processor::find_main_file(&tmp_dir, &ts) {
                 
-                // 2. 進行後製加工 (若為音訊模式，則跳過合併邏輯)
+                // 1. 處理字幕清洗 (如果是影片，只清洗不搬移；如果是音訊，清洗後搬移出去)
+                processor::process_external_subtitles(&tmp_dir, &ts, &final_name, &target_dir, media_type);
+
+                // 2. 處理影片封裝 (將清洗過的字幕與彈幕合併進容器)
                 let merged = if media_type != 1 {
-                    processor::handle_danmaku_merge(&tmp_dir, &ts, &downloaded_file, &final_path)
+                    processor::merge_subs_and_danmaku(&tmp_dir, &ts, &downloaded_file, &final_path)
                 } else {
                     false
                 };
 
-                // 3. 如果沒有觸發封裝 (或是純音訊)，則直接將主檔案搬移到最終存檔目錄
+                // 3. 若沒有任何字幕/彈幕需要封裝，直接搬運主檔案
                 if !merged {
                     let _ = fs::rename(&downloaded_file, &final_path);
                 }
 
-                // 4. 處理外部字幕 (重新命名、清洗並移至存檔目錄)
-                processor::process_external_subtitles(&tmp_dir, &ts, &final_name, &target_dir);
-
-                // 5. 獲取畫質資訊 (純音訊不顯示畫質)
                 let res_info = if media_type != 1 {
                     processor::get_video_resolution(&final_path).map_or("".into(), |r| format!(" [畫質: {}]", r))
                 } else {
@@ -171,7 +148,7 @@ pub fn execute_download_loop(
                 println!("❌ 錯誤：在暫存區找不到下載完成的檔案。");
             }
 
-            // 6. 清理該次下載產生的所有暫存檔案
+            // 4. 清理暫存區！所有的 vtt, clean.vtt, ass 都會在這裡被銷毀
             processor::cleanup_tmps(&tmp_dir, &ts);
 
         } else {
