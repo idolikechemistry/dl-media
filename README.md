@@ -24,15 +24,31 @@
 
 ---
 
-## 🚀 安裝方式
+## 安裝與解除安裝
 
-### macOS / Linux 使用者
-請打開終端機並貼上以下指令。此指令會自動下載執行檔、賦予權限，並將其移動至系統路徑以便全域調用（此範例為 Mac Apple Silicon 版本）：
+### macOS 使用者
 
 ```bash
-curl -L "https://github.com/idolikechemistry/dl-media/releases/latest/download/dl-media-mac-arm64" -o dl-media && chmod +x dl-media && sudo mv dl-media /usr/local/bin/
+brew tap idolikechemistry/dl-media&&brew install idolikechemistry/dl-media/dl-media
 ```
-*(注意：Linux 使用者請將網址中的 `dl-media-mac-arm64` 更改為 `dl-media-linux-x64` 即可)*
+
+### 如何更新
+
+```bash
+brew upgrade dl-media
+```
+
+### 如何解除安裝
+
+```bash
+brew uninstall dl-media && brew untap idolikechemistry/dl-media
+```
+
+### Linux 使用者
+
+```bash
+curl -L "https://github.com/idolikechemistry/dl-media/releases/latest/download/dl-media-linux-x64" -o dl-media && chmod +x dl-media && sudo mv dl-media /usr/local/bin/
+```
 
 ### Windows 使用者
 請前往 [Releases](https://github.com/idolikechemistry/dl-media/releases) 頁面下載最新的 `dl-media-windows-x64.exe` 並手動放置於您的資料夾中。
