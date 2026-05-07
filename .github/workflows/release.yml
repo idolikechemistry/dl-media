@@ -77,7 +77,7 @@ jobs:
           
           # 4. 將雲端環境切換至一個乾淨的暫存資料夾，並 clone 你的 Tap 儲存庫
           cd $RUNNER_TEMP
-          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/idolikechemistry/homebrew-dl-media.git
+          git clone https://${HOMEBREW_TAP_dl_media}@github.com/idolikechemistry/homebrew-dl-media.git
           cd homebrew-dl-media
           
           # 5. 設定 GitHub Actions 機器人的專屬身分
