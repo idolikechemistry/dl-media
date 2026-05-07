@@ -9,8 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  # =====================================================================
+  # 第一階段：建立 Release 空殼 (防止多機衝突)
+  # =====================================================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =====================================================================
+  # 第二階段：三平台平行編譯並上傳
+  # =====================================================================
   build:
     name: Build for ${{ matrix.os }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -42,55 +64,41 @@ jobs:
 
       - name: Prepare binary
         shell: bash
-        run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
-          else
-            cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
-          fi
+        run: cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
 
-      - name: Create GitHub Release
+      - name: Upload binary to Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.asset_name }}
-          prerelease: ${{ contains(github.ref, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # =====================================================================
-      # 🍺 Homebrew 自動發佈模組 (僅限 macOS 節點執行)
+      # 🍺 Homebrew 自動發佈 (使用你的專屬 Secret: HOMEBREW_TAP_DL_MEDIA)
       # =====================================================================
       - name: Update Homebrew Formula
         if: matrix.os == 'macos-latest'
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # 這裡必須對應你在 GitHub Settings 裡設定的名字
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_DL_MEDIA }}
         run: |
-          # 1. 計算剛打包出來的執行檔的 SHA256 校驗碼
           SHA256=$(shasum -a 256 ${{ matrix.asset_name }} | awk '{print $1}')
-          
-          # 2. 處理版本號 (從 git tag 中去掉前綴的 v)
           TAG_NAME=${{ github.ref_name }}
           VERSION=${TAG_NAME#v}
-          
-          # 3. 組合完整的 Release 下載網址
           URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${{ matrix.asset_name }}"
           
-          # 4. 將雲端環境切換至一個乾淨的暫存資料夾，並 clone 你的 Tap 儲存庫
           cd $RUNNER_TEMP
-          git clone https://${HOMEBREW_TAP_dl_media}@github.com/idolikechemistry/homebrew-dl-media.git
+          # 使用剛才定義在 env 裡的 TAP_TOKEN 變數
+          git clone https://${TAP_TOKEN}@github.com/idolikechemistry/homebrew-dl-media.git
           cd homebrew-dl-media
           
-          # 5. 設定 GitHub Actions 機器人的專屬身分
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # 6. 使用 sed 指令精準替換 Ruby 檔案內的字串
-          # (因為是在 macos-latest 上執行，必須使用 BSD sed 的 -i '' 語法)
           sed -i '' 's|url ".*"|url "'"$URL"'"|' Formula/dl-media.rb
           sed -i '' 's|version ".*"|version "'"$VERSION"'"|' Formula/dl-media.rb
           sed -i '' 's|sha256 ".*"|sha256 "'"$SHA256"'"|' Formula/dl-media.rb
           
-          # 7. 提交變更並推送回你的 Tap 儲存庫
           git add Formula/dl-media.rb
           git commit -m "自動發布：dl-media 升級至 v$VERSION"
           git push origin main
