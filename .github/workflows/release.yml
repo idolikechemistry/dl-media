@@ -69,8 +69,8 @@ jobs:
 # 說明：會觸發編譯，但 GitHub 頁面上會標示為 Pre-release，不會取代正式 Latest 版。
 # 指令 (整段複製並在終端機執行)：
 # VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2)
-# git tag v$VER-beta.1
-# git push origin v$VER-beta.1
+# git tag v$VER
+# git push origin v$VER
 #
 # ---------------------------------------------------------------------
 # 【情境 B：發布正式版本 (Latest Release)】
