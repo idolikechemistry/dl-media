@@ -77,7 +77,7 @@ jobs:
       # 🍺 Homebrew 自動發佈 (使用你的專屬 Secret: HOMEBREW_TAP_DL_MEDIA)
       # =====================================================================
       - name: Update Homebrew Formula
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest' && !contains(github.ref, '-')
         env:
           # 這裡必須對應你在 GitHub Settings 裡設定的名字
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_DL_MEDIA }}
