@@ -9,8 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  # =====================================================================
+  # 第一階段：建立 Release 空殼 (防止多機衝突)
+  # =====================================================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =====================================================================
+  # 第二階段：三平台平行編譯並上傳
+  # =====================================================================
   build:
     name: Build for ${{ matrix.os }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -40,51 +62,55 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      # 將檔案移動到根目錄並重新命名，方便稍後上傳
       - name: Prepare binary
         shell: bash
-        run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
-          else
-            cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
-          fi
+        run: cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} ./${{ matrix.asset_name }}
 
-      # 建立 Release 並將檔案掛載上去，自動判斷是否為預發布版本
-      - name: Create GitHub Release
+      - name: Upload binary to Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.asset_name }}
-          # 如果 git tag 包含 '-' (如 v0.3.0-beta.1)，則設定為 Pre-release
-          prerelease: ${{ contains(github.ref, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # =====================================================================
+      # 🍺 Homebrew 自動發佈 (使用你的專屬 Secret: HOMEBREW_TAP_DL_MEDIA)
+      # =====================================================================
+      - name: Update Homebrew Formula
+        if: matrix.os == 'macos-latest' && !contains(github.ref, '-')
+        env:
+          # 這裡必須對應你在 GitHub Settings 裡設定的名字
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_DL_MEDIA }}
+        run: |
+          SHA256=$(shasum -a 256 ${{ matrix.asset_name }} | awk '{print $1}')
+          TAG_NAME=${{ github.ref_name }}
+          VERSION=${TAG_NAME#v}
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${{ matrix.asset_name }}"
+          
+          cd $RUNNER_TEMP
+          # 使用剛才定義在 env 裡的 TAP_TOKEN 變數
+          git clone https://${TAP_TOKEN}@github.com/idolikechemistry/homebrew-dl-media.git
+          cd homebrew-dl-media
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          sed -i '' 's|url ".*"|url "'"$URL"'"|' Formula/dl-media.rb
+          sed -i '' 's|version ".*"|version "'"$VERSION"'"|' Formula/dl-media.rb
+          sed -i '' 's|sha256 ".*"|sha256 "'"$SHA256"'"|' Formula/dl-media.rb
+          
+          git add Formula/dl-media.rb
+          git commit -m "自動發布：dl-media 升級至 v$VERSION"
+          git push origin main
 
 # =====================================================================
 # 🚀 終端機發布指令小抄 (自動讀取 Cargo.toml 版號)
 # ⚠️ 執行前請務必確認已手動修改 Cargo.toml 內的 version 欄位！
 # =====================================================================
 #
-# 【情境 A：發布預發布版本 (Pre-release，例如 Beta 測試)】
-# 說明：會觸發編譯，但 GitHub 頁面上會標示為 Pre-release，不會取代正式 Latest 版。
-# 指令 (整段複製並在終端機執行)：
-# VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2)
-# git tag v$VER-beta.1
-# git push origin v$VER-beta.1
-#
-# ---------------------------------------------------------------------
-# 【情境 B：發布正式版本 (Latest Release)】
-# 說明：會觸發編譯，並在 GitHub 頁面上標示為最新的正式穩定版本。
+# 發布版本 (兼容pre-release和release版本)
 # 指令 (整段複製並在終端機執行)：
 # VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2)
 # git tag v$VER
 # git push origin v$VER
-#
-# ---------------------------------------------------------------------
-# 【情境 C：後悔藥 (刪除打錯的標籤)】
-# 說明：如果不小心打錯標籤，需要把本地和 GitHub 遠端的標籤都刪除。
-# 指令 (以刪除正式版標籤為例，若要刪 beta 請自行在 v$VER 後方加上 -beta.1)：
-# VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2)
-# git tag -d v$VER
-# git push origin --delete v$VER
 # =====================================================================
