@@ -1,7 +1,11 @@
 [package]
 name = "dl-media"
 version = "0.2.1"
-edition = "2024"
+edition = "2021"
+license = "MIT"
+description = "Media downloader and muxer (Built with Rust)"
+homepage = "https://github.com/idolikechemistry/dl-media"
+repository = "https://github.com/idolikechemistry/dl-media"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
