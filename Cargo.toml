@@ -2,6 +2,10 @@
 name = "dl-media"
 version = "0.2.4-beta.1"
 edition = "2024"
+license = "MIT"
+description = "Media downloader and muxer (Built with Rust)"
+homepage = "https://github.com/idolikechemistry/dl-media"
+repository = "https://github.com/idolikechemistry/dl-media"
 
 [dependencies]
 anyhow = "1.0"
