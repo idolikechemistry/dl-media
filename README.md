@@ -26,31 +26,35 @@
 
 ## 安裝與解除安裝
 
-### macOS 使用者
+### MacOS
+
+推薦透過 [Homebrew](https://brew.sh/) 來安裝與管理此套件
 
 ```bash
 brew tap idolikechemistry/dl-media&&brew install idolikechemistry/dl-media/dl-media
 ```
 
-### 如何更新
+#### 如何更新
 
 ```bash
 brew upgrade dl-media
 ```
 
-### 如何解除安裝
+#### 如何解除安裝
 
 ```bash
 brew uninstall dl-media && brew untap idolikechemistry/dl-media
 ```
 
-### Linux 使用者
+### Linux
 
 ```bash
 curl -L "https://github.com/idolikechemistry/dl-media/releases/latest/download/dl-media-linux-x64" -o dl-media && chmod +x dl-media && sudo mv dl-media /usr/local/bin/
 ```
 
-### Windows 使用者
+> Mac使用者也可以用這個命令來下載並且安裝，只要把 `dl-media-linux-x64` 改成 `dl-media-mac-arm64` 即可
+
+### Windows
 請前往 [Releases](https://github.com/idolikechemistry/dl-media/releases) 頁面下載最新的 `dl-media-windows-x64.exe` 並手動放置於您的資料夾中。
 
 ---
@@ -83,6 +87,7 @@ dl-media
 | `--fc` | 強制調用 config 內已儲存的 Cookie | `--fc` |
 | `--open-config` | 打開儲存 Cookie 的專屬設定資料夾 | `--open-config` |
 | `-h, --help` | 顯示所有指令說明 | `-h` |
+| `-V, --version` | 顯示當前版本 | `-V` |
 
 ---
 
