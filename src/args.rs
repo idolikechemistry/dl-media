@@ -21,7 +21,7 @@ pub struct Args {
     #[arg(short, long)]
     pub url: Option<String>,
 
-    /// 指定下載類型 (支援 1, 2, 3 或對應名稱)
+    /// 指定下載類型 (1:音訊, 2:無聲影片, 3:有聲影片)
     #[arg(short, long, value_enum)]
     pub media_type: Option<MediaType>,
 
@@ -42,7 +42,7 @@ pub struct Args {
     pub open_config: bool,
 
     /// 強制調用儲存好的 Cookie
-    #[arg(long = "fc", alias = "force-cookie")] 
+    #[arg(long = "fc", alias = "force-cookie")]
     pub force_cookie: bool,
 }
 
