@@ -1,6 +1,6 @@
 use crate::config::Config;
 use anyhow::{Context, Result};
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
+use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use dirs::config_dir;
 use std::fs;
 use std::io;
@@ -20,8 +20,18 @@ pub fn check_dependencies() -> Result<()> {
 
     for (dep, url) in deps {
         // 同時檢查 --version 與 -h 以確保工具存在
-        if Command::new(dep).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err()
-            && Command::new(dep).arg("-h").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err()
+        if Command::new(dep)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_err()
+            && Command::new(dep)
+                .arg("-h")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_err()
         {
             missing.push((dep, url));
         }
@@ -65,9 +75,14 @@ pub fn interactive_config_setup(config_path: &Path, mut config: Config) -> Resul
 
     loop {
         let options = vec![
-            format!("📂 下載目錄 [目前: {}]", config.download_dir.as_deref().unwrap_or("預設 (Downloads)")),
-            format!("⏳ 暫存目錄 [目前: {}]", config.tmp_dir.as_deref().unwrap_or("預設 (與下載目錄相同)")),
-            format!("🍪 Cookie 目錄 [目前: {}]", config.cookie_dir.as_deref().unwrap_or("預設 (App設定夾)")),
+            format!(
+                "📂 下載目錄 [目前: {}]",
+                config.download_dir.as_deref().unwrap_or("預設 (Downloads)")
+            ),
+            format!(
+                "🍪 Cookie 目錄 [目前: {}]",
+                config.cookie_dir.as_deref().unwrap_or("預設 (App設定夾)")
+            ),
             "✅ 完成並退出".to_string(),
         ];
 
@@ -77,12 +92,14 @@ pub fn interactive_config_setup(config_path: &Path, mut config: Config) -> Resul
             .default(0)
             .interact()?;
 
-        if selection == 3 { break; } // 選擇退出
+        if selection == 3 {
+            break;
+        } // 選擇退出
 
         println!("\n💡 操作指引：");
         println!("   1. 我現在會為您開啟資料夾視窗。");
         println!("   2. 請在視窗中找到目標資料夾，並將其「拖入」此終端機視窗中。");
-        
+
         // 自動幫使用者開啟設定資料夾作為起點
         let _ = open_folder(&config_path.parent().unwrap().to_path_buf());
 
@@ -91,15 +108,15 @@ pub fn interactive_config_setup(config_path: &Path, mut config: Config) -> Resul
             .interact_text()?;
 
         // 核心邏輯：清理拖曳路徑產生的特殊字元 (例如引號或 Mac 的轉義空白)
-        let cleaned_path = input_path.trim()
+        let cleaned_path = input_path
+            .trim()
             .trim_matches('"')
             .trim_matches('\'')
             .replace("\\ ", " "); // 處理 Mac 終端機拖曳產生的轉義空白
 
         match selection {
             0 => config.download_dir = Some(cleaned_path),
-            1 => config.tmp_dir = Some(cleaned_path),
-            2 => config.cookie_dir = Some(cleaned_path),
+            1 => config.cookie_dir = Some(cleaned_path), // 注意這裡的 index 往前遞補了
             _ => {}
         }
 
@@ -152,9 +169,14 @@ pub fn handle_cookies(
         cookie_args.push(target_file.to_string_lossy().to_string());
         println!("🍪 已載入 {} 專用 Cookie", site_target);
     } else if has_restricted {
-        println!("⚠️ 未偵測到 {} 專用 Cookie ({})", site_target, expected_filename);
+        println!(
+            "⚠️ 未偵測到 {} 專用 Cookie ({})",
+            site_target, expected_filename
+        );
 
-        let want_to_wait = if is_silent { false } else {
+        let want_to_wait = if is_silent {
+            false
+        } else {
             Confirm::with_theme(&ColorfulTheme::default())
                 .with_prompt("此內容需要權限。是否要現在開啟 Cookie 目錄放入？")
                 .default(true)
@@ -163,7 +185,10 @@ pub fn handle_cookies(
 
         if want_to_wait {
             open_folder(resolved_cookie_dir)?;
-            println!("⏳ 請將 {} 放入資料夾，完成後按下 Enter 繼續...", expected_filename);
+            println!(
+                "⏳ 請將 {} 放入資料夾，完成後按下 Enter 繼續...",
+                expected_filename
+            );
             let mut _pause = String::new();
             io::stdin().read_line(&mut _pause)?;
 

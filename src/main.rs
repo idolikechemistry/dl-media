@@ -9,10 +9,10 @@ mod utils;
 
 // 2. 引入必要的工具與型別
 use anyhow::{Context, Result}; // 使用 anyhow 的 Result，它只需要一個參數 <()>
-use args::Args;               // 引入你定義的參數結構
-use clap::Parser;             // 引入 clap 的解析功能
-use std::path::PathBuf;       // 引入路徑處理工具
-use std::process;             // 引入系統程序控制
+use args::Args; // 引入你定義的參數結構
+use clap::Parser; // 引入 clap 的解析功能
+use std::path::PathBuf; // 引入路徑處理工具
+use std::process; // 引入系統程序控制
 
 // 3. 程式進入點 (大腦)
 fn main() {
@@ -48,20 +48,22 @@ fn run() -> Result<()> {
     setup::check_dependencies()?;
 
     // --- 三層優先級路徑解析 ---
-    
+
     // 下載路徑優先級：CLI (-o) > Config.toml > 系統 Downloads
-    let final_download_dir = args.output.as_ref()
+    let final_download_dir = args
+        .output
+        .as_ref()
         .map(PathBuf::from)
         .or_else(|| config.download_dir.as_ref().map(PathBuf::from))
         .unwrap_or_else(|| dirs::download_dir().expect("找不到系統下載目錄"));
 
-    // 暫存路徑優先級：Config.toml (tmp_dir) > final_download_dir
-    let final_tmp_dir = config.tmp_dir.as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| final_download_dir.clone());
+    // 暫存路徑
+    let final_tmp_dir = app_config_dir.join(".tmp");
 
     // Cookie 目錄優先級：Config.toml (cookie_dir) > App 設定資料夾
-    let resolved_cookie_dir = config.cookie_dir.as_ref()
+    let resolved_cookie_dir = config
+        .cookie_dir
+        .as_ref()
         .map(PathBuf::from)
         .unwrap_or_else(|| app_config_dir.clone());
 
@@ -69,9 +71,9 @@ fn run() -> Result<()> {
     let is_silent = args.is_fully_automated();
     let (input_url, media_type, target_ext) = if is_silent {
         (
-            args.url.clone().unwrap(), 
-            args.media_type.unwrap() as u8, 
-            args.format.clone().unwrap().to_lowercase()
+            args.url.clone().unwrap(),
+            args.media_type.unwrap() as u8,
+            args.format.clone().unwrap().to_lowercase(),
         )
     } else {
         ui::get_user_input(&args).context("無法取得使用者輸入")?
@@ -79,15 +81,16 @@ fn run() -> Result<()> {
 
     // 網址情報分析
     let site_target = parser::extract_site_name(&input_url);
-    let (mut valid_videos, is_playlist, has_restricted) = parser::scan_url(&input_url, args.force_cookie, &site_target)?;
+    let (mut valid_videos, is_playlist, has_restricted) =
+        parser::scan_url(&input_url, args.force_cookie, &site_target)?;
 
     // 處理 Cookie 套用
     let cookie_args = setup::handle_cookies(
-        &site_target, 
-        has_restricted, 
-        &args.cookie, 
-        &resolved_cookie_dir, 
-        is_silent
+        &site_target,
+        has_restricted,
+        &args.cookie,
+        &resolved_cookie_dir,
+        is_silent,
     )?;
 
     // 如果是播放清單且有 Cookie，嘗試重新掃描是否有解鎖內容
@@ -96,7 +99,8 @@ fn run() -> Result<()> {
     }
 
     // 準備最終存檔資料夾與下載參數
-    let final_target_dir = utils::prepare_output_dir(&final_download_dir, &input_url, &cookie_args, is_playlist);
+    let final_target_dir =
+        utils::prepare_output_dir(&final_download_dir, &input_url, &cookie_args, is_playlist);
     let dl_args = utils::build_download_args(media_type, &target_ext, &input_url, &cookie_args);
 
     // 啟動下載迴圈 (傳入雙路徑：存檔 vs 暫存)
