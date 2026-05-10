@@ -54,7 +54,13 @@ fn run() -> Result<()> {
         .output
         .as_ref()
         .map(PathBuf::from)
-        .or_else(|| config.download_dir.as_ref().map(PathBuf::from))
+        .or_else(|| {
+            config
+                .download_dir
+                .as_ref()
+                .filter(|s| !s.is_empty()) // 🎯 核心補強：過濾掉空字串
+                .map(PathBuf::from)
+        })
         .unwrap_or_else(|| dirs::download_dir().expect("找不到系統下載目錄"));
 
     // 暫存路徑
