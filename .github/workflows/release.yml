@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -86,19 +86,19 @@ jobs:
           TAG_NAME=${{ github.ref_name }}
           VERSION=${TAG_NAME#v}
           URL="https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${{ matrix.asset_name }}"
-          
+
           cd $RUNNER_TEMP
           # 使用剛才定義在 env 裡的 TAP_TOKEN 變數
           git clone https://${TAP_TOKEN}@github.com/idolikechemistry/homebrew-dl-media.git
           cd homebrew-dl-media
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
+
           sed -i '' 's|url ".*"|url "'"$URL"'"|' Formula/dl-media.rb
           sed -i '' 's|version ".*"|version "'"$VERSION"'"|' Formula/dl-media.rb
           sed -i '' 's|sha256 ".*"|sha256 "'"$SHA256"'"|' Formula/dl-media.rb
-          
+
           git add Formula/dl-media.rb
           git commit -m "自動發布：dl-media 升級至 v$VERSION"
           git push origin main
@@ -110,7 +110,5 @@ jobs:
 #
 # 發布版本 (兼容pre-release和release版本)
 # 指令 (整段複製並在終端機執行)：
-# VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2)
-# git tag v$VER
-# git push origin v$VER
+# VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2) && git tag v$VER && git push origin v$VER
 # =====================================================================
