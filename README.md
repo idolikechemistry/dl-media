@@ -1,7 +1,7 @@
 # dl-media
 
 ![Rust](https://img.shields.io/badge/Language-Rust-orange.svg)
-![Version](https://img.shields.io/github/v/release/idolikechemistry/dl-media?label=Version&color=blue)
+![Version](https://img.shields.io/github/v/release/idolikechemistry/dl-media?label=Version&color=blue&t=1)
 ![CI](https://img.shields.io/github/actions/workflow/status/idolikechemistry/dl-media/release.yml)
 
 **dl-media** 是一個為終端機使用者設計的影音下載工具。它簡化了 `yt-dlp` 的複雜參數，提供直覺的選單，並自動處理影片後續的彈幕合併與字幕淨化工作。
