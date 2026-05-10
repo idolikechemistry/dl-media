@@ -43,7 +43,7 @@ brew upgrade dl-media
 #### 如何解除安裝
 
 ```bash
-brew uninstall dl-media && brew untap idolikechemistry/dl-media
+brew uninstall dl-media&&brew untap idolikechemistry/dl-media
 ```
 
 ### Linux
