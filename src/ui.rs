@@ -8,15 +8,20 @@ use inquire::{
 };
 
 /// 互動式取得使用者輸入
-pub fn get_user_input(args: &crate::args::Args) -> Result<(String, u8, String)> {
+/// 🎯 核心修改：回傳型別改為 Vec<String> 以支援多連結批量輸入
+pub fn get_user_input(args: &crate::args::Args) -> Result<(Vec<String>, u8, String)> {
     let theme = ColorfulTheme::default();
 
-    // 1. 取得網址
-    let url = match &args.url {
+    // 1. 取得網址 (支援多個，以空格隔開)
+    let urls = match &args.url {
         Some(u) => u.clone(),
-        None => Input::<String>::with_theme(&theme)
-            .with_prompt("🔗 請貼上影片或播放清單網址")
-            .interact_text()?,
+        None => {
+            let input = Input::<String>::with_theme(&theme)
+                .with_prompt("🔗 請貼上影片或播放清單網址 (多個網址請用空格隔開)")
+                .interact_text()?;
+            // 🎯 清洗並切割字串成陣列
+            input.split_whitespace().map(|s| s.to_string()).collect()
+        }
     };
 
     // 2. 取得下載類型
@@ -38,7 +43,7 @@ pub fn get_user_input(args: &crate::args::Args) -> Result<(String, u8, String)> 
         }
     };
 
-    // 3. 取得格式 (🎯 核心修改：增加提示與字串清洗)
+    // 3. 取得格式
     let format = match &args.format {
         Some(f) => f.clone(),
         None => {
@@ -62,7 +67,7 @@ pub fn get_user_input(args: &crate::args::Args) -> Result<(String, u8, String)> 
     };
 
     // 回傳時將 Enum 轉為 u8 給底層邏輯使用
-    Ok((url, media_type_enum as u8, format))
+    Ok((urls, media_type_enum as u8, format))
 }
 
 /// 下載完成後的總結報告
@@ -75,7 +80,7 @@ pub fn print_summary(success: usize, fail: usize, duration: &str, path: &str) {
     println!("=================================================");
 }
 
-// 🎯 新增：畫質選擇選單
+// 🎯 畫質選擇選單
 pub fn select_resolution(formats: &[VideoFormat]) -> Option<String> {
     let mut options_raw: Vec<&VideoFormat> = formats.iter().filter(|f| f.height > 1080).collect();
 

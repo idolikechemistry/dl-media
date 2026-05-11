@@ -1,6 +1,6 @@
 [package]
 name = "dl-media"
-version = "0.2.6"
+version = "0.2.7-beta.4"
 edition = "2024"
 license = "MIT"
 description = "Media downloader and muxer (Built with Rust)"
@@ -10,6 +10,8 @@ repository = "https://github.com/idolikechemistry/dl-media"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }
+clap_complete = "4.0" # Shell 自動補全
+tokio = { version = "1.0", features = ["full"] } # 非同步運行
 dialoguer = "0.11"
 dirs = "5.0"
 chrono = "0.4"

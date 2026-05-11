@@ -3,22 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn find_main_file(tmp_dir: &Path, ts: &str) -> Option<PathBuf> {
-    let entries = fs::read_dir(tmp_dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-            // 嚴格比對前綴，確保找對主檔案
-            if file_name.starts_with(&format!("tmp_{}", ts)) {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if ["mp4", "mkv", "webm", "mp3", "m4a", "f4v"].contains(&ext) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    None
-}
+// 🎯 註記：原本的 find_main_file 已經被移除，改為由 yt-dlp 直接回傳絕對路徑！
 
 pub fn process_external_subtitles(
     tmp_dir: &Path,

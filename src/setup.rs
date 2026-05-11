@@ -51,7 +51,7 @@ pub fn check_dependencies() -> Result<()> {
     Ok(())
 }
 
-/// 2. 初始化設定環境：建立資料夾與產生預設 config.toml
+/// 2. 初始化設定環境：建立資料夾並載入設定檔
 pub fn init_config() -> Result<(PathBuf, Config)> {
     let mut path = config_dir().context("無法取得系統設定目錄")?;
     path.push("dl-media");
@@ -60,28 +60,36 @@ pub fn init_config() -> Result<(PathBuf, Config)> {
     }
 
     let config_file = path.join("config.toml");
-    if !config_file.exists() {
-        fs::write(&config_file, Config::default_template()).context("生成預設設定檔失敗")?;
-        println!("✨ 已在設定資料夾生成新的 config.toml。");
-    }
 
+    // 🎯 這裡直接呼叫 load，讓 Config 結構體自己去判斷要「初次生成」還是「讀取升級」
     let config_data = Config::load(&config_file)?;
+
     Ok((path, config_data))
 }
 
-/// 3. 互動式設定引導 (TUI)：支援拖曳路徑輸入
+/// 3. 互動式設定引導 (TUI)：支援拖曳路徑輸入與並行數設定
 pub fn interactive_config_setup(config_path: &Path, mut config: Config) -> Result<()> {
     let theme = ColorfulTheme::default();
 
     loop {
+        // 🎯 修正：直接檢查 String 是否為空，來決定顯示預設文字還是路徑
+        let dl_dir_display = if config.download_dir.is_empty() {
+            "預設 (Downloads)"
+        } else {
+            &config.download_dir
+        };
+        let ck_dir_display = if config.cookie_dir.is_empty() {
+            "預設 (App設定夾)"
+        } else {
+            &config.cookie_dir
+        };
+
         let options = vec![
+            format!("📂 下載目錄 [目前: {}]", dl_dir_display),
+            format!("🍪 Cookie 目錄 [目前: {}]", ck_dir_display),
             format!(
-                "📂 下載目錄 [目前: {}]",
-                config.download_dir.as_deref().unwrap_or("預設 (Downloads)")
-            ),
-            format!(
-                "🍪 Cookie 目錄 [目前: {}]",
-                config.cookie_dir.as_deref().unwrap_or("預設 (App設定夾)")
+                "⚡ 最大並行下載數 [目前: {}]",
+                config.max_concurrent_downloads
             ),
             "✅ 完成並退出".to_string(),
         ];
@@ -96,31 +104,44 @@ pub fn interactive_config_setup(config_path: &Path, mut config: Config) -> Resul
             break;
         } // 選擇退出
 
-        println!("\n💡 操作指引：");
-        println!("   1. 我現在會為您開啟資料夾視窗。");
-        println!("   2. 請在視窗中找到目標資料夾，並將其「拖入」此終端機視窗中。");
+        if selection == 2 {
+            println!("\n⚠️ 【強烈警告】");
+            println!(
+                "設置過高將有極大風險觸發 YouTube 或其他伺服器的 DDoS 防護，甚至導致您的 IP 被封鎖！"
+            );
+            println!("建議一般使用者保持在 3-5 之間。\n");
 
-        // 自動幫使用者開啟設定資料夾作為起點
-        let _ = open_folder(&config_path.parent().unwrap().to_path_buf());
+            let input_num: u32 = Input::with_theme(&theme)
+                .with_prompt("請輸入新的最大並行任務數")
+                .default(config.max_concurrent_downloads)
+                .interact_text()?;
 
-        let input_path: String = Input::with_theme(&theme)
-            .with_prompt("📍 請拖入路徑並按下 Enter")
-            .interact_text()?;
+            config.max_concurrent_downloads = input_num;
+        } else {
+            println!("\n💡 操作指引：");
+            println!("   1. 我現在會為您開啟資料夾視窗。");
+            println!("   2. 請在視窗中找到目標資料夾，並將其「拖入」此終端機視窗中。");
 
-        // 核心邏輯：清理拖曳路徑產生的特殊字元 (例如引號或 Mac 的轉義空白)
-        let cleaned_path = input_path
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .replace("\\ ", " "); // 處理 Mac 終端機拖曳產生的轉義空白
+            let _ = open_folder(&config_path.parent().unwrap().to_path_buf());
 
-        match selection {
-            0 => config.download_dir = Some(cleaned_path),
-            1 => config.cookie_dir = Some(cleaned_path), // 注意這裡的 index 往前遞補了
-            _ => {}
+            let input_path: String = Input::with_theme(&theme)
+                .with_prompt("📍 請拖入路徑並按下 Enter")
+                .interact_text()?;
+
+            let cleaned_path = input_path
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .replace("\\ ", " ");
+
+            match selection {
+                // 🎯 修正：拿掉 Some()，直接賦予 String
+                0 => config.download_dir = cleaned_path,
+                1 => config.cookie_dir = cleaned_path,
+                _ => {}
+            }
         }
 
-        // 即時儲存，保證設定不遺失
         config.save(config_path).context("儲存設定失敗")?;
         println!("✨ 設定已更新！\n");
     }
