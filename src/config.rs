@@ -99,6 +99,9 @@ impl Config {
 #
 # 📍 download_dir:
 #    預設下載目錄。留空則使用系統「下載」資料夾。
+#   - Mac:     ~/Library/Application Support/dl-media/
+#   - Linux:   ~/.config/dl-media/
+#   - Windows: %APPDATA%\dl-media\
 #    範例: "/Users/username/Movies"
 #
 # 🍪 cookie_dir:
