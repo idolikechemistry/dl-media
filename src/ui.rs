@@ -48,7 +48,7 @@ pub fn get_user_input(args: &crate::args::Args) -> Result<(Vec<String>, u8, Stri
         Some(f) => f.clone(),
         None => {
             let formats = match media_type_enum {
-                MediaType::Audio => vec!["mp3", "m4a"],
+                MediaType::Audio => vec!["m4a", "mp3"],
                 _ => vec!["mp4 (最高 1080p，相容性佳)", "mkv (解鎖 4K/8K 畫質)"],
             };
             let selection = Select::with_theme(&theme)
