@@ -5,10 +5,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::process::Command as AsyncCommand; // 🎯 引入非同步 Command
-use tokio::sync::Semaphore; // 🎯 引入信號量控制並行數
+use tokio::process::Command as AsyncCommand;
+use tokio::sync::Semaphore;
 
-/// 構建 yt-dlp 的下載指令參數 (不含輸出路徑、網址與動態字幕)
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
+
+/// 構建 yt-dlp 的下載指令參數
 pub fn build_download_args(
     media_type: u8,
     target_ext: &str,
@@ -16,7 +20,9 @@ pub fn build_download_args(
     _cookie_args: &[String],
 ) -> Vec<String> {
     let mut dl_args: Vec<String> = vec![
-        "--quiet".into(),
+        "--newline".into(),
+        "--progress".into(),
+        "--no-colors".into(),
         "--no-warnings".into(),
         "--ignore-errors".into(),
         "--no-overwrites".into(),
@@ -28,13 +34,9 @@ pub fn build_download_args(
         "--restrict-filenames".into(),
         "--sponsorblock-remove".into(),
         "sponsor,intro,outro".into(),
-        // 🎯 核心修改：要求 yt-dlp 成功後只打印出最終移動後的絕對路徑
-        "--print".into(),
-        "after_move:filepath".into(),
     ];
 
     if media_type == 1 {
-        // 音訊模式
         dl_args.extend(vec![
             "--extract-audio".into(),
             "--audio-format".into(),
@@ -51,7 +53,6 @@ pub fn build_download_args(
             dl_args.extend(vec!["-f".into(), "bestaudio[ext=m4a]/bestaudio".into()]);
         }
     } else {
-        // 影片模式
         dl_args.extend(vec!["--merge-output-format".into(), target_ext.into()]);
         if target_ext == "mkv" {
             dl_args.extend(vec!["-f".into(), "bv*+ba/best".into()]);
@@ -65,7 +66,6 @@ pub fn build_download_args(
     dl_args
 }
 
-/// 準備最終存檔資料夾
 pub fn prepare_output_dir(
     base_dir: &PathBuf,
     input_url: &str,
@@ -76,7 +76,6 @@ pub fn prepare_output_dir(
     let _ = fs::create_dir_all(&dir);
 
     if is_pl {
-        // 取得播放清單標題 (此處維持同步即可，因為只執行一次)
         let title = std::process::Command::new("yt-dlp")
             .args(cookie_args)
             .args([
@@ -100,12 +99,11 @@ pub fn prepare_output_dir(
     dir
 }
 
-/// 🎯 核心修改：非同步下載執行核心迴圈
 pub async fn execute_download_loop(
     valid_videos: Vec<VideoItem>,
     is_playlist: bool,
     media_type: u8,
-    target_ext: String, // 改為 String 以利跨執行緒轉移
+    target_ext: String,
     dl_args: Vec<String>,
     cookie_args: Vec<String>,
     target_dir: PathBuf,
@@ -118,26 +116,24 @@ pub async fn execute_download_loop(
 
     let _ = fs::create_dir_all(&tmp_dir);
 
-    // 🎯 建立信號量以限制最大並行數
     let semaphore = Arc::new(Semaphore::new(max_concurrent as usize));
     let mut handles = vec![];
+    let multi_progress = Arc::new(MultiProgress::new());
 
     for (idx, video) in valid_videos.into_iter().enumerate() {
-        // 獲取信號量許可證，若超過並行數則會在此非同步等待
         let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-        // 複製必要的變數給非同步任務使用
         let target_ext = target_ext.clone();
         let mut current_dl_args = dl_args.clone();
         let cookie_args = cookie_args.clone();
         let target_dir = target_dir.clone();
         let tmp_dir = tmp_dir.clone();
+        let multi_progress = multi_progress.clone();
 
-        // 🎯 派生非同步任務
         let handle = tokio::spawn(async move {
             let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
             let pid = std::process::id();
-            let session_id = format!("{}_pid{}_{}", ts, pid, idx); // 加上 idx 確保完全唯一
+            let session_id = format!("{}_pid{}_{}", ts, pid, idx);
             let session_tmp_dir = tmp_dir.join(&session_id);
             let _ = fs::create_dir_all(&session_tmp_dir);
 
@@ -152,14 +148,22 @@ pub async fn execute_download_loop(
             };
             let final_path = target_dir.join(&final_name);
 
-            println!("🎬 開始處理 ({}/{}): {}", idx + 1, total, video.title);
+            let pb = multi_progress.add(ProgressBar::new(100));
+            pb.set_style(
+                ProgressStyle::with_template(
+                    "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {msg}"
+                )
+                .unwrap()
+                .progress_chars("#>-"),
+            );
+            pb.set_prefix(format!("[{}/{}]", idx + 1, total));
+            pb.set_message("準備下載...");
 
-            // 🎯 互動防護機制：只有在單任務執行時，才觸發 UI 選單
             if max_concurrent == 1 {
                 let probe_result = match parser::probe_video_info(&video.url, &cookie_args) {
                     Ok(info) => info,
                     Err(e) => {
-                        println!("⚠️ 無法取得影片資訊，將使用預設參數：{}", e);
+                        pb.println(format!("⚠️ 無法取得影片資訊，將使用預設參數：{}", e));
                         crate::parser::VideoInfo {
                             langs: vec![],
                             formats: vec![],
@@ -183,13 +187,12 @@ pub async fn execute_download_loop(
                             }
                         }
                     } else if target_ext == "mp4" {
-                        println!("📌 採用 MP4 安全模式：將自動下載最高 1080p 相容畫質。");
+                        pb.println("📌 採用 MP4：將自動下載最高 1080p 相容畫質。");
                     }
                 }
             } else {
-                // 並行模式下，若為影片預設印出提示即可
                 if media_type != 1 && target_ext == "mp4" {
-                    println!("📌 採用 MP4 安全模式：自動下載最高相容畫質。");
+                    pb.println("📌 採用 MP4：自動下載最高相容畫質。");
                 }
             }
 
@@ -199,75 +202,103 @@ pub async fn execute_download_loop(
             current_dl_args.push(tmp_output_template);
             current_dl_args.push(video.url.clone());
 
-            // 🎯 非同步執行 yt-dlp
-            let output = AsyncCommand::new("yt-dlp")
+            let mut child = AsyncCommand::new("yt-dlp")
                 .current_dir(&session_tmp_dir)
                 .args(&cookie_args)
                 .args(&current_dl_args)
-                .output()
-                .await
+                .stdout(Stdio::piped())
+                .spawn()
                 .expect("執行 yt-dlp 失敗");
 
-            let mut success = false;
-            let mut final_res_info = String::new();
-
-            if output.status.success() {
-                let stdout_str = String::from_utf8_lossy(&output.stdout);
-
-                // 🎯 擷取絕對路徑：從 stdout 抓取最後一行非空的字串
-                if let Some(downloaded_path_str) =
-                    stdout_str.lines().filter(|l| !l.trim().is_empty()).last()
-                {
-                    let downloaded_file = PathBuf::from(downloaded_path_str.trim());
-
-                    if downloaded_file.exists() {
-                        // 1. 處理字幕清洗
-                        processor::process_external_subtitles(
-                            &session_tmp_dir,
-                            &ts,
-                            &final_name,
-                            &target_dir,
-                            media_type,
-                        );
-
-                        // 2. 處理影片封裝
-                        let merged = if media_type != 1 {
-                            processor::merge_subs_and_danmaku(
-                                &session_tmp_dir,
-                                &ts,
-                                &downloaded_file,
-                                &final_path,
-                            )
-                        } else {
-                            false
-                        };
-
-                        // 3. 若沒有任何字幕/彈幕需要封裝，直接搬運主檔案
-                        if !merged {
-                            let _ = fs::rename(&downloaded_file, &final_path);
+            if let Some(stdout) = child.stdout.take() {
+                let mut reader = BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    if line.contains("[download]") && line.contains("%") {
+                        if let Some(pct_str) = line.split_whitespace().find(|s| s.contains("%")) {
+                            if let Ok(pct) = pct_str.replace('%', "").parse::<f32>() {
+                                pb.set_position(pct as u64);
+                            }
                         }
-
-                        if media_type != 1 {
-                            final_res_info = processor::get_video_resolution(&final_path)
-                                .map_or("".into(), |r| format!(" [畫質: {}]", r));
-                        }
-
-                        println!("✅ 儲存成功：{}{}", final_name, final_res_info);
-                        success = true;
-                    } else {
-                        println!(
-                            "❌ 錯誤：雖然 yt-dlp 回報成功，但找不到目標檔案 ({:?})",
-                            downloaded_file
-                        );
+                        pb.set_message(line.replace("[download]", "").trim().to_string());
                     }
-                } else {
-                    println!("❌ 錯誤：無法從 yt-dlp 輸出中解析絕對路徑。");
                 }
-            } else {
-                println!("⚠️ 下載失敗：{}", video.title);
             }
 
-            // 4. 清理暫存區並釋放信號量
+            let status = child
+                .wait()
+                .await
+                .unwrap_or_else(|_| panic!("等待 yt-dlp 失敗"));
+            let mut success = false;
+            let mut downloaded_path_str = String::new();
+
+            if status.success() {
+                if let Ok(entries) = fs::read_dir(&session_tmp_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+
+                        if file_name.starts_with(&format!("tmp_{}", ts))
+                            && !file_name.ends_with(".vtt")
+                            && !file_name.ends_with(".ass")
+                            && !file_name.ends_with(".srt")
+                        {
+                            downloaded_path_str = path.to_string_lossy().to_string();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let mut final_res_info = String::new();
+
+            if status.success() && !downloaded_path_str.is_empty() {
+                let downloaded_file = PathBuf::from(downloaded_path_str);
+
+                processor::process_external_subtitles(
+                    &session_tmp_dir,
+                    &ts,
+                    &final_name,
+                    &target_dir,
+                    media_type,
+                );
+
+                pb.set_position(0);
+                pb.set_message("正在執行封裝...");
+
+                let merged = if media_type != 1 {
+                    processor::merge_subs_and_danmaku(
+                        &session_tmp_dir,
+                        &ts,
+                        &downloaded_file,
+                        &final_path,
+                        pb.clone(),
+                    )
+                    .await
+                } else {
+                    false
+                };
+
+                if !merged {
+                    let _ = fs::rename(&downloaded_file, &final_path);
+                    pb.set_position(100);
+                }
+
+                if media_type != 1 {
+                    final_res_info = processor::get_video_resolution(&final_path)
+                        .map_or("".into(), |r| format!(" [畫質: {}]", r));
+                }
+
+                // 🎯 核心修正：先安全地印出成功文字，然後讓進度條徹底消失
+                pb.println(format!("✅ 儲存成功：{}{}", final_name, final_res_info));
+                pb.finish_and_clear();
+
+                success = true;
+            } else {
+                // 🎯 核心修正：錯誤時也是先印文字，然後清除進度條
+                pb.println(format!("⚠️ 下載失敗：{}", video.title));
+                pb.finish_and_clear();
+            }
+
             processor::cleanup_tmps(&session_tmp_dir);
             drop(permit);
 
@@ -277,7 +308,6 @@ pub async fn execute_download_loop(
         handles.push(handle);
     }
 
-    // 等待所有非同步任務完成並統計結果
     let mut success_count = 0;
     let mut fail_count = 0;
 

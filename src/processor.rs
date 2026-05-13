@@ -1,7 +1,11 @@
+use indicatif::ProgressBar;
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::Command; // 保留給同步方法使用
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command as AsyncCommand; // 🎯 引入非同步 Command
 
 // 🎯 註記：原本的 find_main_file 已經被移除，改為由 yt-dlp 直接回傳絕對路徑！
 
@@ -40,11 +44,34 @@ pub fn process_external_subtitles(
     }
 }
 
-pub fn merge_subs_and_danmaku(
+/// 🎯 獲取影片總時長（秒）以計算封裝進度百分比
+async fn get_video_duration(path: &Path) -> Option<f64> {
+    let output = AsyncCommand::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path.to_str().unwrap(),
+        ])
+        .output()
+        .await
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<f64>()
+        .ok()
+}
+
+// 🎯 改為 async fn 並接收 ProgressBar
+pub async fn merge_subs_and_danmaku(
     tmp_dir: &Path,
     ts: &str,
     video_path: &Path,
     final_path: &Path,
+    pb: ProgressBar,
 ) -> bool {
     let mut sub_files: Vec<(PathBuf, String, String)> = Vec::new();
 
@@ -86,9 +113,17 @@ pub fn merge_subs_and_danmaku(
         return false;
     }
     sub_files.sort_by(|a, b| a.1.cmp(&b.1));
-    let mut cmd = Command::new("ffmpeg");
+
+    // 🎯 獲取影片總時長
+    let total_duration = get_video_duration(video_path).await.unwrap_or(1.0);
+
+    let mut cmd = AsyncCommand::new("ffmpeg");
     cmd.arg("-loglevel").arg("error");
     cmd.arg("-hide_banner");
+
+    // 🎯 讓 FFmpeg 將機器可讀的進度輸出到標準輸出
+    cmd.arg("-progress").arg("-").arg("-nostats");
+
     cmd.arg("-i").arg(video_path);
 
     for (sub_path, _, _) in &sub_files {
@@ -117,13 +152,35 @@ pub fn merge_subs_and_danmaku(
             .arg(format!("title={}", title));
         cmd.arg(format!("-metadata:s:s:{}", i))
             .arg(format!("handler_name={}", title));
-        // 🎯 針對 Apple 體系：設置 'name' 標籤，這是某些 MP4 播放器讀取標題的最後希望
+        // 🎯 針對 Apple 體系：設置 'name' 標籤
         cmd.arg(format!("-metadata:s:s:{}", i))
             .arg(format!("name={}", title));
     }
 
     cmd.arg("-y").arg(final_path);
-    cmd.status().map_or(false, |s| s.success())
+
+    // 🎯 攔截標準輸出並解析進度
+    cmd.stdout(Stdio::piped());
+
+    if let Ok(mut child) = cmd.spawn() {
+        if let Some(stdout) = child.stdout.take() {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                // 解析 FFmpeg 輸出的微秒時間戳
+                if line.starts_with("out_time_us=") {
+                    if let Ok(us) = line.replace("out_time_us=", "").trim().parse::<f64>() {
+                        let current_sec = us / 1_000_000.0;
+                        let pct = (current_sec / total_duration * 100.0) as u64;
+                        pb.set_position(pct.min(100)); // 防止超過 100%
+                        pb.set_message(format!("封裝中... {}%", pct.min(100)));
+                    }
+                }
+            }
+        }
+        child.wait().await.map_or(false, |s| s.success())
+    } else {
+        false
+    }
 }
 
 pub fn get_video_resolution(path: &Path) -> Option<String> {
