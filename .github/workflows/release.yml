@@ -109,4 +109,5 @@ jobs:
 # 1. 確保已修改 Cargo.toml 內的 version
 # 2. 執行以下指令 (自動提交、打標籤、推送)：
 # VER=$(grep -m 1 '^version' Cargo.toml | cut -d '"' -f 2) && git add . && git commit -m "chore: release v$VER" && git tag -a v$VER -m "Release v$VER: 支援多網址與設定檔自動同步" && git push origin main && git push origin v$VER
+# Note: "Release v$VER: 支援多網址與設定檔自動同步" 的內容記得改
 # =====================================================================

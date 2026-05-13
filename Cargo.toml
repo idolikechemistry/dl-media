@@ -1,6 +1,6 @@
 [package]
 name = "dl-media"
-version = "0.2.9-beta.6"
+version = "0.2.9"
 edition = "2024"
 license = "MIT"
 description = "Media downloader and muxer (Built with Rust)"

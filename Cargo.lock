@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "dl-media"
-version = "0.2.9-beta.6"
+version = "0.2.9"
 dependencies = [
  "anyhow",
  "chrono",
